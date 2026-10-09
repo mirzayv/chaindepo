@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 // Controller va Service qo'shni fayllardan import qilinyapti
-import { NestarBatchController } from './nestar-batch.controller';
-import { NestarBatchService } from './nestar-batch.service';
+import { ChainDepoBatchController } from './chaindepo-batch.controller';
+import { ChainDepoBatchService } from './chaindepo-batch.service';
 // .env faylini o'qish uchun modul
 import { ConfigModule } from '@nestjs/config';
 // yuqorida yozgan MongoDB ulanish modulimiz
@@ -9,9 +9,9 @@ import { DatabaseModule } from './database/database.module';
 // ScheduleModule — @nestjs/schedule paketidan, cron vazifalarini boshqaradigan asosiy modul (BUGUNGI DARSNING KALITI)
 import { ScheduleModule } from '@nestjs/schedule';
 import { MongooseModule } from '@nestjs/mongoose';
-// DIQQAT: schema fayllari BOSHQA ILOVADAN (nestar-api) to'g'ridan-to'g'ri import qilinyapti — bu mumkin, chunki bu MONOREPO: ikkala ilova bir xil tsconfig va node_modules'ni bo'lishadi
-import PropertySchema from 'apps/nestar-api/src/schemas/Property.model';
-import MemberSchema from 'apps/nestar-api/src/schemas/Member.model';
+// DIQQAT: schema fayllari BOSHQA ILOVADAN (chaindepo-api) to'g'ridan-to'g'ri import qilinyapti — bu mumkin, chunki bu MONOREPO: ikkala ilova bir xil tsconfig va node_modules'ni bo'lishadi
+import PropertySchema from 'apps/chaindepo-api/src/schemas/Property.model';
+import MemberSchema from 'apps/chaindepo-api/src/schemas/Member.model';
 
 @Module({
 	imports: [
@@ -27,8 +27,8 @@ import MemberSchema from 'apps/nestar-api/src/schemas/Member.model';
 		MongooseModule.forFeature([{ name: 'Member', schema: MemberSchema }]),
 	],
 	// Controller ro'yxatga olinadi (cron vazifalari shu yerda)
-	controllers: [NestarBatchController],
+	controllers: [ChainDepoBatchController],
 	// Service ro'yxatga olinadi (haqiqiy hisob-kitob shu yerda)
-	providers: [NestarBatchService],
+	providers: [ChainDepoBatchService],
 })
-export class NestarBatchModule {}
+export class ChainDepoBatchModule {}

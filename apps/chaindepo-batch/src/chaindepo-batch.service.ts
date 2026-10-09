@@ -2,18 +2,18 @@
 import { Injectable } from '@nestjs/common';
 // InjectModel decorator — Mongoose modelini constructor'ga in'ektsiya qilish uchun
 import { InjectModel } from '@nestjs/mongoose';
-// Member va Property DTO'lari nestar-api'dan to'g'ridan-to'g'ri import qilinyapti (monorepo imkoniyati)
-import { Member } from 'apps/nestar-api/src/libs/dto/member/member';
-import { Property } from 'apps/nestar-api/src/libs/dto/property/property';
+// Member va Property DTO'lari chaindepo-api'dan to'g'ridan-to'g'ri import qilinyapti (monorepo imkoniyati)
+import { Member } from 'apps/chaindepo-api/src/libs/dto/member/member';
+import { Property } from 'apps/chaindepo-api/src/libs/dto/property/property';
 // MemberStatus, MemberType enum'lari — a'zoning holati va turi
-import { MemberStatus, MemberType } from 'apps/nestar-api/src/libs/enums/member.enum';
+import { MemberStatus, MemberType } from 'apps/chaindepo-api/src/libs/enums/member.enum';
 // PropertyStatus enum'i — mulkning holati
-import { PropertyStatus } from 'apps/nestar-api/src/libs/enums/property.enum';
+import { PropertyStatus } from 'apps/chaindepo-api/src/libs/enums/property.enum';
 // Model — Mongoose modelining umumiy tipi
 import { Model } from 'mongoose';
 
 @Injectable()
-export class NestarBatchService {
+export class ChainDepoBatchService {
 	constructor(
 		// 'Property' modeli in'ektsiya qilinadi, tipi Model<Property>
 		@InjectModel('Property') private readonly propertyModel: Model<Property>,
@@ -83,6 +83,6 @@ export class NestarBatchService {
 
 	// oddiy salom metodi, Controller'dagi @Get() orqali chaqiriladi
 	public getHello(): string {
-		return 'Welcome to Nestar BATCH Server';
+		return 'Welcome to ChainDepo BATCH Server';
 	}
 }

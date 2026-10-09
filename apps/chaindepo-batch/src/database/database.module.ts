@@ -16,7 +16,7 @@ import { Connection } from 'mongoose';
 			}),
 		}),
 	],
-	// MongooseModule tashqariga eksport qilinadi, shunda NestarBatchModule shu ulanishdan foydalana oladi
+	// MongooseModule tashqariga eksport qilinadi, shunda ChainDepoBatchModule shu ulanishdan foydalana oladi
 	exports: [MongooseModule],
 })
 export class DatabaseModule {

@@ -1,15 +1,15 @@
 // NestFactory — NestJS ilovasini yaratish uchun asosiy klass
 import { NestFactory } from '@nestjs/core';
-// DIQQAT: bu yerda AppModule EMAS, balki NestarBatchModule — bu ikkala ilova haqiqatan mustaqil ekanining eng aniq isboti: har birining o'z kirish nuqtasi va o'z ildiz moduli bor
-import { NestarBatchModule } from './nestar-batch.module';
+// DIQQAT: bu yerda AppModule EMAS, balki ChainDepoBatchModule — bu ikkala ilova haqiqatan mustaqil ekanining eng aniq isboti: har birining o'z kirish nuqtasi va o'z ildiz moduli bor
+import { ChainDepoBatchModule } from './chaindepo-batch.module';
 import { ValidationPipe } from '@nestjs/common';
-// LoggingInterceptor nestar-api'dan import qilinyapti — kod takrorlanmasligi uchun (monorepo imkoniyati)
-import { LoggingInterceptor } from 'apps/nestar-api/src/libs/interceptor/Logging.interceptor';
+// LoggingInterceptor chaindepo-api'dan import qilinyapti — kod takrorlanmasligi uchun (monorepo imkoniyati)
+import { LoggingInterceptor } from 'apps/chaindepo-api/src/libs/interceptor/Logging.interceptor';
 
 // bootstrap — ilovani ishga tushiruvchi asosiy async funksiya
 async function bootstrap() {
-	// NestarBatchModule asosida yangi, mustaqil ilova yaratiladi
-	const app = await NestFactory.create(NestarBatchModule);
+	// ChainDepoBatchModule asosida yangi, mustaqil ilova yaratiladi
+	const app = await NestFactory.create(ChainDepoBatchModule);
 	// global validatsiya yoqiladi
 	app.useGlobalPipes(new ValidationPipe());
 	// global logging interceptor yoqiladi

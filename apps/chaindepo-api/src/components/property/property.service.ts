@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- *  apps/nestar-api/src/components/property/property.service.ts
+ *  apps/chaindepo-api/src/components/property/property.service.ts
  * ============================================================================
  *
  *  BU FAYL NIMA?

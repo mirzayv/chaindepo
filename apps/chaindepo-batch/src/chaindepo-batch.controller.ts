@@ -2,18 +2,18 @@
 import { Controller, Get, Logger } from '@nestjs/common';
 // Cron decorator — @nestjs/schedule paketidan, metodni jadval bo'yicha avtomatik ishga tushadigan vazifaga aylantiradi
 import { Cron } from '@nestjs/schedule';
-import { NestarBatchService } from './nestar-batch.service';
+import { ChainDepoBatchService } from './chaindepo-batch.service';
 // uchta konstanta lib/config.ts fayldan import qilinyapti
 import { BATCH_ROLLBACK, BATCH_TOP_PROPERTIES, BATCH_TOP_AGENTS } from './lib/config';
 
 // @Controller() — argumentsiz, ya'ni bu controller ildiz yo'lda ("/") ishlaydi
 @Controller()
-export class NestarBatchController {
+export class ChainDepoBatchController {
 	// logger — private property, Logger instansiyasi, nomi 'BatchController'
 	private logger: Logger = new Logger('BatchController');
 
-	// constructor orqali NestarBatchService in'ektsiya qilinadi (private readonly — faqat shu class ichida, o'zgartirib bo'lmaydi)
-	constructor(private readonly nestarBatchService: NestarBatchService) {}
+	// constructor orqali ChainDepoBatchService in'ektsiya qilinadi (private readonly — faqat shu class ichida, o'zgartirib bo'lmaydi)
+	constructor(private readonly chainDepoBatchService: ChainDepoBatchService) {}
 
 	// Har kuni 01:00:00 da ishlaydi
 	// @Cron ifodasi olti qismdan: soniya daqiqa soat oyning-kuni oy haftaning-kuni; '0 0 1 * * *' = soniya:0, daqiqa:0, soat:1, qolgani * (istalgan) → har kuni soat 01:00:00; ikkinchi argument { name: ... } vazifaga nom beradi (keyinroq kod orqali topish/to'xtatish uchun)
@@ -28,7 +28,7 @@ export class NestarBatchController {
 			this.logger.debug('EXECUTED!');
 
 			// haqiqiy ish Service'ga topshiriladi — "yupqa Controller, qalin Service" tamoyili
-			await this.nestarBatchService.batchRollback();
+			await this.chainDepoBatchService.batchRollback();
 		} catch (error) {
 			// xato bo'lsa, logger orqali yoziladi, lekin server ishlashda davom etadi
 			this.logger.error(error);
@@ -42,7 +42,7 @@ export class NestarBatchController {
 			this.logger['context'] = BATCH_TOP_PROPERTIES;
 			this.logger.debug('EXECUTED!');
 
-			await this.nestarBatchService.batchTopProperties();
+			await this.chainDepoBatchService.batchTopProperties();
 		} catch (error) {
 			this.logger.error(error);
 		}
@@ -55,7 +55,7 @@ export class NestarBatchController {
 			this.logger['context'] = BATCH_TOP_AGENTS;
 			this.logger.debug('EXECUTED!');
 
-			await this.nestarBatchService.batchTopAgents();
+			await this.chainDepoBatchService.batchTopAgents();
 		} catch (error) {
 			this.logger.error(error);
 		}
@@ -65,6 +65,6 @@ export class NestarBatchController {
 	@Get()
 	// getHello — oddiy salom xabari qaytaradi, batch server ishlab turganini tekshirish uchun
 	getHello(): string {
-		return this.nestarBatchService.getHello();
+		return this.chainDepoBatchService.getHello();
 	}
 }
