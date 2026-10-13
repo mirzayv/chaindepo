@@ -11,10 +11,10 @@ Format: lightweight ADRs. Status values: **Accepted** (applied), **Proposed** (r
 | D-05 | Validate with `tsc --noEmit` + `nest build` per project; lint without `--fix` | Accepted |
 | D-06 | Do not fix the broken ESLint setup inside the rename layer | Accepted |
 | D-07 | Blockchain integration approach | **Open** |
-| D-08 | Fate of the social modules (Like/Follow/View/BoardArticle) | **Open** |
-| D-09 | Role model replacing `USER`/`AGENT`/`ADMIN` | **Open** |
-| D-10 | Property → Shipment migration strategy | Proposed |
-| D-11 | Rename the GraphQL operations as one coordinated breaking change | Proposed |
+| D-08 | Fate of the social modules (Like/Follow/View/BoardArticle) | **Partially accepted** (kept and re-targeted at shipments) |
+| D-09 | Role model replacing `USER`/`AGENT`/`ADMIN` | Accepted (`USER` = shipper, `CARRIER`, `ADMIN`) |
+| D-10 | Property → Shipment migration strategy | Accepted (in-place replacement) |
+| D-11 | Rename the GraphQL operations as one coordinated breaking change | Accepted (no deprecated wrappers) |
 | D-12 | Reuse the WebSocket gateway for live tracking | Proposed |
 
 ---
@@ -73,21 +73,23 @@ Format: lightweight ADRs. Status values: **Accepted** (applied), **Proposed** (r
 
 - Options: (1) keep and re-target Like/View/Comment/Follow/BoardArticle at shipments and carriers; (2) drop Like/Follow/BoardArticle/View and keep Comment/Notification.
 - **Considerations:** Comments and notifications fit logistics (shipment notes, status alerts). Likes and follows are a weak fit, but carrier ratings or "follow a shipment" could reuse them. Removing them also removes the batch ranking jobs.
+- **Outcome (2026-10-13):** For now, Like/View/Comment/Notification are kept and re-targeted (`*Group.SHIPMENT`). The batch ranks shipments and carriers. Follow and BoardArticle are unchanged. Whether to drop any of them is still open.
 
-## D-09: Role model (OPEN)
+## D-09: Role model (Accepted 2026-10-13)
 
-- Candidates: `SHIPPER` / `CARRIER` / `ADMIN` (a 1:1 map from `USER`/`AGENT`/`ADMIN`, which is the simplest), or the same plus `WAREHOUSE` for depot check-in/out.
-- **Risks:** Roles are embedded in JWT payloads (`AuthService.createToken` serialises the whole member). After a rename, existing tokens carry old role strings until users log in again, so plan a data migration of `members.memberType` plus forced re-login.
+- **Decision:** `MemberType` = `USER` (the shipper; the value keeps its name), `CARRIER` (was `AGENT`), `ADMIN`. A USER creates and owns shipments (`memberId`). A CARRIER is assigned through the optional `Shipment.carrierId`, which must be an ACTIVE CARRIER. `WAREHOUSE` is not added.
+- **Member operations:** `getAgents` → `getCarriers`, `AgentsInquiry` → `CarriersInquiry`.
+- **Risks:** Roles are embedded in JWT payloads (`AuthService.createToken` serialises the whole member). Existing tokens carry `AGENT` until users log in again. `members.memberType` must be migrated manually (commands are in [COMPLETED_TASKS.md](COMPLETED_TASKS.md), 2026-10-13 §6).
 
-## D-10: Property → Shipment strategy (Proposed)
+## D-10: Property → Shipment strategy (Accepted 2026-10-13: in-place replacement)
 
-- Add new `Shipment` and `TrackingEvent` modules **alongside** `Property`. Move the shared DTO `OrdinaryInquiry` to a common location. Re-point Like/View/Comment at shipments. Delete Property only after the frontend has switched.
-- **Why:** This keeps the API working at every step and avoids a frontend/backend deadlock.
-- **Alternative:** Mutate `Property` in place into `Shipment`. This was rejected because the fields barely overlap (beds/rooms/price vs origin/destination/status).
+- **Original proposal:** add `Shipment` alongside `Property` and delete Property only after the frontend has switched.
+- **Decision (user):** `Shipment` **replaces** `Property`. The Property module, DTOs, enum and schema were deleted in the same change. `OrdinaryInquiry`, `PricesRange` and `PeriodsRange` moved to `libs/dto/common/common.input.ts`. Like/View/Comment were re-pointed at shipments. The domain fields were redesigned rather than mutated: origin/destination, weight, tracking code, carrierId, lastEventHash.
+- **Consequence:** the Nestar frontend no longer works against this API until it migrates (D-11). TrackingEvent is a separate, later step.
 
-## D-11: GraphQL rename as one coordinated breaking change (Proposed)
+## D-11: GraphQL rename as one coordinated breaking change (Accepted 2026-10-13)
 
-- Rename operations and types (e.g. `getProperties` → `getShipments`) in one release together with the frontend. During the transition, optionally keep the old operations as thin deprecated wrappers (`@Query({ deprecationReason })`).
+- **Decision:** the operations and types were renamed in one breaking change, with **no** deprecated wrappers. The full rename table is in [COMPLETED_TASKS.md](COMPLETED_TASKS.md) (2026-10-13 §4).
 - **Risks:** Apollo client caches and typed hooks in the frontend must be regenerated.
 
 ## D-12: WebSocket for live tracking (Proposed)

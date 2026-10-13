@@ -1,6 +1,6 @@
 # Backend Migration: Nestar → ChainDepo
 
-> Status as of 2026-10-09 (branch `modification`). Phase 1 (the safe rename layer) is done. Domain migration has not started.
+> Status as of 2026-10-13 (branch `modification`). Phase 1 (the safe rename layer) is done. **Domain layer, step 1 is done:** `Shipment` replaced `Property` in place, `AGENT` became `CARRIER`, and the GraphQL operations were renamed (breaking). TrackingEvent is next. Details are in [COMPLETED_TASKS.md](COMPLETED_TASKS.md) (2026-10-13). Sections 4–8 below describe the state after the rename layer; the 2026-10-13 changes are summarised in §9.
 
 ## 1. Original project: Nestar
 
@@ -136,3 +136,44 @@ The **database name** comes from the `MONGO_DEV`/`MONGO_PROD` URIs in `.env`, wh
 - **Git:** the rename layer is committed as `33b2d9e fix: modify project name into chaindepo` on branch `modification`.
 - **Lint is broken (pre-existing):** `eslint.config.mjs` imports `typescript-eslint` (plus `@eslint/js`, `globals`), which is not declared in `package.json`. ESLint 8.57.1 is installed while the config is a v9-style flat config.
 - **Batch shares the API's code:** `chaindepo-batch` imports schemas, DTOs, enums and `LoggingInterceptor` from `apps/chaindepo-api/src/...` (absolute paths through `baseUrl: "./"`). Any rename or removal in the API breaks the batch build too, so always typecheck both apps.
+
+## 9. Domain layer, step 1: Property → Shipment (2026-10-13)
+
+### Module graph now
+
+```
+AppModule
+├─ ConfigModule, GraphQLModule (Apollo), DatabaseModule, SocketModule
+└─ ComponentsModule
+   ├─ MemberModule, AuthModule
+   ├─ ShipmentModule   ← replaces PropertyModule
+   ├─ BoardArticleModule, LikeModule, ViewModule, CommentModule (→ ShipmentModule), FollowModule
+ChainDepoBatchModule
+└─ ConfigModule, DatabaseModule, ScheduleModule, Mongoose(Shipment, Member)
+```
+
+### Resolved couplings (from §5)
+
+| Coupling | Now |
+|---|---|
+| Comment → PropertyModule | Comment → ShipmentModule, `CommentGroup.SHIPMENT` → `shipmentStatsEditor('shipmentComments')` |
+| Like `getFavoriteProperties` / View `getVisitedProperties` | `getFavoriteShipments` / `getVisitedShipments` (`$lookup` from `shipments`) |
+| `OrdinaryInquiry` in `property.input.ts` | `libs/dto/common/common.input.ts` (together with `PricesRange`, `PeriodsRange`) |
+| `libs/config.ts` property sorts/options/lookups | `availableShipmentSorts`, `availableCarrierSorts`, `generateTrackingCode`; `lookupFavorite`/`lookupVisit` use `favoriteShipment`/`visitedShipment` |
+| `memberProperties` | `memberShipments` (counts a shipper's shipments) |
+| `Notification.propertyId` | `shipmentId` (ref `Shipment`) |
+| `*Group.PROPERTY` | `*Group.SHIPMENT` (Like, View, Comment, Notification) |
+| Batch property/agent ranking | `batchTopShipments` (likes×2 + views), `batchTopCarriers` (delivered×5 + articles×3 + likes×2 + views); cron constants `BATCH_TOP_SHIPMENTS`, `BATCH_TOP_CARRIERS` |
+
+### Collections
+
+| Collection | Change |
+|---|---|
+| `shipments` (new) | `Shipment.model.ts`: type, status, origin, destination, address, title, desc, images, price, weight (kg), unique `shipmentTrackingCode`, `memberId`, optional `carrierId`, optional `lastEventHash`, counters, `deliveredAt`, `deletedAt` |
+| `properties` | No longer used by the code; drop or archive it manually |
+| `members` | `memberType` value `CARRIER` (was `AGENT`), `memberShipments` (was `memberProperties`): **manual data migration** needed |
+| `likes`, `views`, `comments` | Group value `SHIPMENT` (was `PROPERTY`): **manual data migration** needed |
+
+### GraphQL
+
+The contract is **no longer** backward compatible with the Nestar frontend. See the rename table in [COMPLETED_TASKS.md](COMPLETED_TASKS.md) (2026-10-13 §4). New GraphQL enums: `ShipmentType`, `ShipmentStatus`, `ShipmentLocation`. Removed: `PropertyType`, `PropertyStatus`, `PropertyLocation`.

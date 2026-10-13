@@ -1,76 +1,73 @@
 import { Field, Int, ObjectType } from '@nestjs/graphql';
 import * as mongoose from 'mongoose';
-import { PropertyLocation, PropertyStatus, PropertyType } from '../../enums/property.enum';
+import { ShipmentLocation, ShipmentStatus, ShipmentType } from '../../enums/shipment.enum';
 import { Member, TotalCounter } from '../member/member';
 import { MeLiked } from '../like/like';
 
 @ObjectType()
-export class Property {
+export class Shipment {
 	@Field(() => String)
 	_id!: mongoose.ObjectId;
 
-	@Field(() => PropertyType)
-	propertyType!: PropertyType;
+	@Field(() => ShipmentType)
+	shipmentType!: ShipmentType;
 
-	@Field(() => PropertyStatus)
-	propertyStatus!: PropertyStatus;
+	@Field(() => ShipmentStatus)
+	shipmentStatus!: ShipmentStatus;
 
-	@Field(() => PropertyLocation)
-	propertyLocation!: PropertyLocation;
+	@Field(() => ShipmentLocation)
+	shipmentOrigin!: ShipmentLocation;
+
+	@Field(() => ShipmentLocation)
+	shipmentDestination!: ShipmentLocation;
 
 	@Field(() => String)
-	propertyAddress!: string;
+	shipmentAddress!: string;
 
 	@Field(() => String)
-	propertyTitle!: string;
+	shipmentTitle!: string;
 
 	@Field(() => Number)
-	propertyPrice!: number;
+	shipmentPrice!: number;
 
 	@Field(() => Number)
-	propertySquare!: number;
+	shipmentWeight!: number;
+
+	@Field(() => String)
+	shipmentTrackingCode!: string;
 
 	@Field(() => Int)
-	propertyBeds!: number;
+	shipmentViews!: number;
 
 	@Field(() => Int)
-	propertyRooms!: number;
+	shipmentLikes!: number;
 
 	@Field(() => Int)
-	propertyViews!: number;
+	shipmentComments!: number;
 
 	@Field(() => Int)
-	propertyLikes!: number;
-
-	@Field(() => Int)
-	propertyComments!: number;
-
-	@Field(() => Int)
-	propertyRank!: number;
+	shipmentRank!: number;
 
 	@Field(() => [String])
-	propertyImages!: string[];
+	shipmentImages!: string[];
 
 	@Field(() => String, { nullable: true })
-	propertyDesc?: string;
-
-	@Field(() => Boolean)
-	propertyBarter!: boolean;
-
-	@Field(() => Boolean)
-	propertyRent!: boolean;
+	shipmentDesc?: string;
 
 	@Field(() => String)
 	memberId!: mongoose.ObjectId;
 
+	@Field(() => String, { nullable: true })
+	carrierId?: mongoose.ObjectId;
+
+	@Field(() => String, { nullable: true })
+	lastEventHash?: string;
+
 	@Field(() => Date, { nullable: true })
-	soldAt?: Date;
+	deliveredAt?: Date;
 
 	@Field(() => Date, { nullable: true })
 	deletedAt?: Date;
-
-	@Field(() => Date, { nullable: true })
-	constructedAt?: Date;
 
 	@Field(() => Date)
 	createdAt!: Date;
@@ -88,9 +85,9 @@ export class Property {
 }
 
 @ObjectType()
-export class Properties {
-	@Field(() => [Property])
-	list: Property[] | undefined;
+export class Shipments {
+	@Field(() => [Shipment])
+	list: Shipment[] | undefined;
 
 	@Field(() => [TotalCounter], { nullable: true })
 	metaCounter: TotalCounter[] | undefined;

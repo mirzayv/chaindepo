@@ -11,13 +11,13 @@ import { ViewInput } from '../../libs/dto/view/view.input';
 // T — umumiy "har qanday obyekt" tipi
 import { T } from '../../libs/types/common';
 // OrdinaryInquiry — faqat page/limit maydonlaridan iborat oddiy so'rov DTO'si
-import { OrdinaryInquiry } from '../../libs/dto/property/property.input';
-// ViewGroup — ko'rish qaysi turdagi elementga tegishli ekanini bildiruvchi enum (masalan PROPERTY, MEMBER, ARTICLE)
+import { OrdinaryInquiry } from '../../libs/dto/common/common.input';
+// ViewGroup — ko'rish qaysi turdagi elementga tegishli ekanini bildiruvchi enum (masalan SHIPMENT, MEMBER, ARTICLE)
 import { ViewGroup } from '../../libs/enums/view.enum';
-// lookupVisit — config.ts'da yozilgan, ko'rilgan mulk egasining ma'lumotini olish uchun tayyor $lookup obyekti
+// lookupVisit — config.ts'da yozilgan, ko'rilgan yuk egasining ma'lumotini olish uchun tayyor $lookup obyekti
 import { lookupVisit } from '../../libs/config';
-// Properties — mulklar ro'yxati (list) va umumiy son (metaCounter) DTO'si
-import { Properties } from '../../libs/dto/property/property';
+// Shipments — yuklar ro'yxati (list) va umumiy son (metaCounter) DTO'si
+import { Shipments } from '../../libs/dto/shipment/shipment';
 
 // @Injectable() decorator — bu classni NestJS'ning dependency injection tizimiga ro'yxatdan o'tkazadi
 @Injectable()
@@ -53,12 +53,12 @@ export class ViewService {
 		return await this.viewModel.findOne(search).exec();
 	}
 
-	// getVisitedProperties — [128]-darsning ikkinchi asosiy metodi: memberId va OrdinaryInquiry parametrlarini oladi, Promise<Properties> qaytaradi
-	public async getVisitedProperties(memberId: ObjectId, input: OrdinaryInquiry): Promise<Properties> {
+	// getVisitedShipments — memberId va OrdinaryInquiry parametrlarini oladi, Promise<Shipments> qaytaradi
+	public async getVisitedShipments(memberId: ObjectId, input: OrdinaryInquiry): Promise<Shipments> {
 		// input obyektidan page va limit ajratib olinadi
 		const { page, limit } = input;
-		// match obyekti tayyorlanadi — faqat 'property' turidagi, faqat shu foydalanuvchining ko'rishlari
-		const match: T = { viewGroup: ViewGroup.PROPERTY, memberId: memberId };
+		// match obyekti tayyorlanadi — faqat 'shipment' turidagi, faqat shu foydalanuvchining ko'rishlari
+		const match: T = { viewGroup: ViewGroup.SHIPMENT, memberId: memberId };
 
 		// data konstantasiga aggregation natijasi await orqali kutib olinadi
 		const data: T = await this.viewModel
@@ -69,20 +69,20 @@ export class ViewService {
 				// ikkinchi bosqich — eng yangi ko'rishlar birinchi chiqadigan tartibda saralash
 				{ $sort: { updatedAt: -1 } },
 				{
-					// uchinchi bosqich — oddiy $lookup, mulk hujjatini topish uchun
+					// uchinchi bosqich — oddiy $lookup, yuk hujjatini topish uchun
 					$lookup: {
-						// 'properties' collection'idan qidiriladi
-						from: 'properties',
+						// 'shipments' collection'idan qidiriladi
+						from: 'shipments',
 						// view hujjatining 'viewRefId' maydoni orqali
 						localField: 'viewRefId',
-						// mulk hujjatining '_id' maydoni bilan solishtiriladi
+						// yuk hujjatining '_id' maydoni bilan solishtiriladi
 						foreignField: '_id',
-						// natija 'visitedProperty' nomi ostida qo'shiladi
-						as: 'visitedProperty',
+						// natija 'visitedShipment' nomi ostida qo'shiladi
+						as: 'visitedShipment',
 					},
 				},
 				// to'rtinchi bosqich — $lookup natijasi massiv bo'lgani uchun, uni yozib, oddiy obyektga aylantiradi
-				{ $unwind: '$visitedProperty' },
+				{ $unwind: '$visitedShipment' },
 				{
 					// beshinchi bosqich — bitta oqimni ikkiga bo'ladi
 					$facet: {
@@ -92,10 +92,10 @@ export class ViewService {
 							{ $skip: (page - 1) * limit },
 							// nechta hujjat olinadi
 							{ $limit: limit },
-							// mulk egasining ma'lumotini qo'shadigan tayyor $lookup obyekti
+							// yuk egasining ma'lumotini qo'shadigan tayyor $lookup obyekti
 							lookupVisit,
-							// ichki 'visitedProperty.memberData' massivini oddiy obyektga aylantiradi
-							{ $unwind: '$visitedProperty.memberData' },
+							// ichki 'visitedShipment.memberData' massivini oddiy obyektga aylantiradi
+							{ $unwind: '$visitedShipment.memberData' },
 						],
 						// metaCounter qismi — filtrlangan umumiy son
 						metaCounter: [{ $count: 'total' }],
@@ -105,10 +105,10 @@ export class ViewService {
 			// .exec() — so'rovni haqiqatan bazaga yuboradi
 			.exec();
 
-		// bo'sh Properties obyekti tayyorlanadi, metaCounter to'g'ridan-to'g'ri ko'chiriladi
-		const result: Properties = { list: [], metaCounter: data[0].metaCounter };
-		// data[0].list massividagi har bir elementdan faqat 'visitedProperty' qismi ajratib olinadi (map metodi orqali)
-		result.list = data[0].list.map((ele: T) => ele.visitedProperty);
+		// bo'sh Shipments obyekti tayyorlanadi, metaCounter to'g'ridan-to'g'ri ko'chiriladi
+		const result: Shipments = { list: [], metaCounter: data[0].metaCounter };
+		// data[0].list massividagi har bir elementdan faqat 'visitedShipment' qismi ajratib olinadi (map metodi orqali)
+		result.list = data[0].list.map((ele: T) => ele.visitedShipment);
 
 		// tayyor natija qaytariladi
 		return result;

@@ -68,3 +68,111 @@ The rename is committed in `33b2d9e`. The only uncommitted change is this docume
 ## 5. Documentation (this step)
 
 Created `docs/` with `BACKEND_MIGRATION.md`, `DECISIONS.md`, `FRONTEND_MIGRATION.md`, `COMPLETED_TASKS.md`, `NEXT_STEPS.md`, `PROMPTS.md`. No application source changed.
+
+---
+
+# Completed Tasks: Session 2026-10-13 (Property → Shipment domain migration)
+
+Branch: `modification`. Nothing was committed or pushed by Claude. `.env` was not read or changed.
+
+`Shipment` (collection `shipments`) **replaces** `Property` in place, `MemberType.AGENT` becomes `CARRIER`, and the Like/View/Comment/Notification groups switch from `PROPERTY` to `SHIPMENT`. This is a **breaking GraphQL change** (see DECISIONS D-09, D-10, D-11). TrackingEvent was not added; it is the next phase.
+
+## 1. Decisions taken with the user
+
+- **USER (shipper) creates and owns shipments** (`memberId`). `carrierId` is optional and must point to an ACTIVE `CARRIER` member.
+- **Member-side Agent names become Carrier names:** `getAgents` → `getCarriers`, `AgentsInquiry` → `CarriersInquiry`, `availableAgentSorts` → `availableCarrierSorts`.
+- **Notification is renamed too:** `NotificationGroup.SHIPMENT`, `propertyId` → `shipmentId`.
+
+## 2. Phases
+
+| Phase | Work | Validation |
+|---|---|---|
+| 1. Additive | Shipment enum/schema/DTOs, `libs/dto/common/common.input.ts`, `availableShipmentSorts`, `generateTrackingCode`; temporary `CARRIER`/`SHIPMENT`/`memberShipments` next to the old values | ✅ tsc api + batch, `nest build chaindepo-api` |
+| 2. Batch | Batch moved to the Shipment model, CARRIER members, `BATCH_TOP_SHIPMENTS` / `BATCH_TOP_CARRIERS` | ✅ tsc api + batch, both `nest build` |
+| 3. API switch-over | `ShipmentModule`; Like/View/Comment re-targeted; Carrier renames; old values removed; Property files deleted | ✅ tsc api + batch, both `nest build`; grep for `propert`/`agent`/`mulk` finds only TypeScript "class property" comments |
+| 4. Docs | This section, BACKEND_MIGRATION, DECISIONS, NEXT_STEPS | — |
+| Fix | `npm run start:dev` failed with `multiple types named "CISearch"`: the carriers search input (renamed from `AISearch`) clashed with the comments search input. Renamed it to `CarrierISearch` in `member.input.ts`. Checked all `@InputType`/`@ObjectType` class names and `registerEnumType` names: no other duplicates | ✅ tsc api + batch, `nest build chaindepo-api` |
+
+Lint was not run (known broken, D-06). Runtime smoke test: **not run yet** (the GraphQL schema is generated at runtime, see §6).
+
+## 3. Files
+
+All paths are under `apps/chaindepo-api/src/` unless they start with `apps/chaindepo-batch`.
+
+### Created
+
+| File | Content |
+|---|---|
+| `libs/enums/shipment.enum.ts` | `ShipmentType` (DOCUMENT, PARCEL, PALLET, CONTAINER), `ShipmentStatus` (CREATED, PICKED_UP, IN_TRANSIT, DELIVERED, CANCELLED, DELETE), `ShipmentLocation` (the old 9 `PropertyLocation` values) |
+| `schemas/Shipment.model.ts` | Model `Shipment`, collection `shipments`, unique `shipmentTrackingCode`, optional `carrierId` and `lastEventHash`, `deliveredAt` |
+| `libs/dto/shipment/shipment.ts` | `Shipment`, `Shipments` |
+| `libs/dto/shipment/shipment.input.ts` | `ShipmentInput`, `WeightsRange`, `ShipmentsInquiry`, `MyShipmentsInquiry`, `AllShipmentsInquiry` |
+| `libs/dto/shipment/shipment.update.ts` | `ShipmentUpdate` |
+| `libs/dto/common/common.input.ts` | `OrdinaryInquiry`, `PricesRange`, `PeriodsRange` (moved out of the property DTOs) |
+| `components/shipment/shipment.{module,resolver,service}.ts` | Shipment component |
+
+### Edited
+
+| File | Change |
+|---|---|
+| `libs/config.ts` | `availableCarrierSorts`, `availableShipmentSorts`, `generateTrackingCode()` (`crypto.randomBytes`, no new package); `lookupFavorite`/`lookupVisit` → `favoriteShipment`/`visitedShipment`; removed `availablePropertySorts`, `availableOptions` |
+| `libs/enums/member.enum.ts` | `AGENT` → `CARRIER` |
+| `libs/enums/{like,view,comment,notification}.enum.ts` | `PROPERTY` → `SHIPMENT` |
+| `schemas/Member.model.ts`, `libs/dto/member/member.ts` | `memberProperties` → `memberShipments` |
+| `schemas/Notification.model.ts` | `propertyId` → `shipmentId` (ref `Shipment`) |
+| `libs/dto/member/member.input.ts` | `AgentsInquiry` → `CarriersInquiry` |
+| `components/member/member.{service,resolver}.ts` | `getAgents` → `getCarriers`; `checkAuthRoles` allows USER and CARRIER |
+| `components/like/like.service.ts` | `getFavoriteProperties` → `getFavoriteShipments` (lookup from `shipments`) |
+| `components/view/view.service.ts` | `getVisitedProperties` → `getVisitedShipments` |
+| `components/comment/comment.{module,service}.ts` | Depends on `ShipmentModule`; `CommentGroup.SHIPMENT` → `shipmentStatsEditor('shipmentComments')` |
+| `components/components.module.ts` | `PropertyModule` → `ShipmentModule` |
+| `components/board-article/board-article.resolver.ts` | Log string `getProperty` → `getBoardArticle` |
+| `apps/chaindepo-batch/src/chaindepo-batch.{module,service,controller}.ts`, `lib/config.ts` | Shipment model, `batchTopShipments`, `batchTopCarriers`, new cron constants |
+
+### Deleted
+
+`components/property/*`, `libs/dto/property/*`, `libs/enums/property.enum.ts`, `schemas/Property.model.ts`.
+
+## 4. GraphQL contract changes
+
+| Old | New | Guard |
+|---|---|---|
+| `createProperty` | `createShipment` | USER |
+| `getProperty(propertyId)` | `getShipment(shipmentId)` | optional auth |
+| `updateProperty` | `updateShipment` | USER (owner) |
+| `getProperties(PropertiesInquiry)` | `getShipments(ShipmentsInquiry)` | optional auth |
+| `getAgentProperties` | `getMyShipments(MyShipmentsInquiry)` | USER |
+| — | `getCarrierShipments(MyShipmentsInquiry)` | CARRIER |
+| `getFavorites`, `getVisited` | same names, return `Shipments` | auth |
+| `likeTargetProperty(propertyId)` | `likeTargetShipment(shipmentId)` | auth |
+| `getAllPropertiesByAdmin` | `getAllShipmentsByAdmin` | ADMIN |
+| `updatePropertyByAdmin` | `updateShipmentByAdmin` | ADMIN |
+| `removePropertyByAdmin(propertyId)` | `removeShipmentByAdmin(shipmentId)` | ADMIN |
+| `getAgents(AgentsInquiry)` | `getCarriers(CarriersInquiry)` | optional auth |
+
+Removed fields and filters: beds, rooms, barter, rent, `constructedAt`, the `options`/`roomsList`/`bedsList` filters, and `squaresRange` (now `weightsRange`). New `ShipmentsInquiry.search` filters: `carrierId`, `originList`, `destinationList`, `statusList`. `text` matches the title **or** the tracking code.
+
+## 5. Behaviour rules
+
+- **Visibility:** public reads and likes show every status except `DELETE` (this replaces the old "ACTIVE only" rule).
+- **Create:** the tracking code is generated on the server as `CD` + `YYMMDD` + 8 hex chars (e.g. `CD261013A1B2C3D4`). The shipper's `memberShipments` goes up by 1.
+- **Shipper update:** only works while the shipment is `CREATED`. The shipper can only set the status to `CANCELLED` or `DELETE`. `PICKED_UP`, `IN_TRANSIT` and `DELIVERED` are reserved for the carrier / TrackingEvent phase and for admins.
+- **Admin update:** works on any shipment that is not deleted and can set any status.
+- **Dates:** `DELIVERED` sets `deliveredAt` and `DELETE` sets `deletedAt`. **Bug fixed:** the old Property code computed `soldAt`/`deletedAt` into local variables and never saved them.
+- **Counter:** `memberShipments` goes down by 1 only on `DELETE`.
+- **Batch:** carrier rank = delivered shipments assigned to the carrier ×5 + articles ×3 + likes ×2 + views. `memberShipments` counts a shipper's own shipments, so it is not used for carriers.
+
+## 6. Pending for the user
+
+1. **Runtime smoke test** (`npm run start:dev`, `npm run start:dev:batch`). Then in the playground: signup as USER and as CARRIER → `createShipment` with `carrierId` → `getShipments`/`getShipment` → `likeTargetShipment` → `createComment` (group `SHIPMENT`) → `getFavorites`/`getVisited` → `getMyShipments`/`getCarrierShipments` → `getCarriers`.
+2. **Manual DB migration** of existing data (Claude did not run it). Without it, old `AGENT` members and `PROPERTY` likes, views and comments fail GraphQL enum serialization:
+   ```js
+   db.members.updateMany({ memberType: 'AGENT' }, { $set: { memberType: 'CARRIER' } });
+   db.members.updateMany({ memberProperties: { $exists: true } }, { $rename: { memberProperties: 'memberShipments' } });
+   db.likes.updateMany({ likeGroup: 'PROPERTY' }, { $set: { likeGroup: 'SHIPMENT' } });
+   db.views.updateMany({ viewGroup: 'PROPERTY' }, { $set: { viewGroup: 'SHIPMENT' } });
+   db.comments.updateMany({ commentGroup: 'PROPERTY' }, { $set: { commentGroup: 'SHIPMENT' } });
+   // The old listings cannot be converted into shipments; drop or archive them:
+   db.properties.drop();
+   ```
+   Old likes, views and comments that point to property IDs become orphans; deleting them is optional. JWTs issued before the change carry `memberType: 'AGENT'`, so those users must log in again.

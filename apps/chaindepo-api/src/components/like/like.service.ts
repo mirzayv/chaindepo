@@ -12,13 +12,13 @@ import { LikeInput } from '../../libs/dto/like/like.input';
 import { Message } from '../../libs/enums/common.enum';
 // T — umumiy "har qanday obyekt" tipi
 import { T } from '../../libs/types/common';
-// LikeGroup — like qaysi turdagi elementga tegishli ekanini bildiruvchi enum (masalan PROPERTY, MEMBER, ARTICLE)
+// LikeGroup — like qaysi turdagi elementga tegishli ekanini bildiruvchi enum (masalan SHIPMENT, MEMBER, ARTICLE)
 import { LikeGroup } from '../../libs/enums/like.enum';
-// OrdinaryInquiry — faqat page/limit maydonlaridan iborat oddiy so'rov DTO'si (bugun property.input.ts'ga qo'shilgan)
-import { OrdinaryInquiry } from '../../libs/dto/property/property.input';
-// Properties — mulklar ro'yxati (list) va umumiy son (metaCounter) DTO'si
-import { Properties } from '../../libs/dto/property/property';
-// lookupFavorite — config.ts'da yozilgan, sevimli mulk egasining ma'lumotini olish uchun tayyor $lookup obyekti
+// OrdinaryInquiry — faqat page/limit maydonlaridan iborat oddiy so'rov DTO'si (umumiy common.input.ts'da)
+import { OrdinaryInquiry } from '../../libs/dto/common/common.input';
+// Shipments — yuklar ro'yxati (list) va umumiy son (metaCounter) DTO'si
+import { Shipments } from '../../libs/dto/shipment/shipment';
+// lookupFavorite — config.ts'da yozilgan, sevimli yuk egasining ma'lumotini olish uchun tayyor $lookup obyekti
 import { lookupFavorite } from '../../libs/config';
 
 // @Injectable() decorator — bu classni NestJS'ning dependency injection tizimiga "ro'yxatdan o'tkazadi", uni boshqa joylarga in'ektsiya qilish mumkin bo'ladi
@@ -74,12 +74,12 @@ export class LikeService {
 		return result ? [{ memberId, likeRefId, myFavorite: true }] : [];
 	}
 
-	// getFavoriteProperties — [128]-darsning asosiy metodi: memberId va OrdinaryInquiry (page/limit) parametrlarini oladi, Promise<Properties> qaytaradi
-	public async getFavoriteProperties(memberId: ObjectId, input: OrdinaryInquiry): Promise<Properties> {
+	// getFavoriteShipments — memberId va OrdinaryInquiry (page/limit) parametrlarini oladi, Promise<Shipments> qaytaradi
+	public async getFavoriteShipments(memberId: ObjectId, input: OrdinaryInquiry): Promise<Shipments> {
 		// input obyektidan page va limit ajratib olinadi
 		const { page, limit } = input;
-		// match obyekti tayyorlanadi — faqat 'property' turidagi, faqat shu foydalanuvchining like'lari
-		const match: T = { likeGroup: LikeGroup.PROPERTY, memberId: memberId };
+		// match obyekti tayyorlanadi — faqat 'shipment' turidagi, faqat shu foydalanuvchining like'lari
+		const match: T = { likeGroup: LikeGroup.SHIPMENT, memberId: memberId };
 
 		// data konstantasiga, aggregation natijasi await orqali kutib olinadi
 		const data: T = await this.likeModel
@@ -90,20 +90,20 @@ export class LikeService {
 				// ikkinchi bosqich — eng yangi like'lar birinchi chiqadigan tartibda saralash
 				{ $sort: { updatedAt: -1 } },
 				{
-					// uchinchi bosqich — oddiy $lookup, mulk hujjatini topish uchun
+					// uchinchi bosqich — oddiy $lookup, yuk hujjatini topish uchun
 					$lookup: {
-						// 'properties' collection'idan qidiriladi
-						from: 'properties',
+						// 'shipments' collection'idan qidiriladi
+						from: 'shipments',
 						// like hujjatining 'likeRefId' maydoni orqali
 						localField: 'likeRefId',
-						// mulk hujjatining '_id' maydoni bilan solishtiriladi
+						// yuk hujjatining '_id' maydoni bilan solishtiriladi
 						foreignField: '_id',
-						// natija 'favoriteProperty' nomi ostida qo'shiladi
-						as: 'favoriteProperty',
+						// natija 'favoriteShipment' nomi ostida qo'shiladi
+						as: 'favoriteShipment',
 					},
 				},
 				// to'rtinchi bosqich — $lookup natijasi massiv bo'lgani uchun, uni yozib, oddiy obyektga aylantiradi
-				{ $unwind: '$favoriteProperty' },
+				{ $unwind: '$favoriteShipment' },
 				{
 					// beshinchi bosqich — bitta oqimni ikkiga bo'ladi
 					$facet: {
@@ -113,10 +113,10 @@ export class LikeService {
 							{ $skip: (page - 1) * limit },
 							// nechta hujjat olinadi
 							{ $limit: limit },
-							// mulk egasining ma'lumotini qo'shadigan tayyor $lookup obyekti
+							// yuk egasining ma'lumotini qo'shadigan tayyor $lookup obyekti
 							lookupFavorite,
-							// ichki 'favoriteProperty.memberData' massivini oddiy obyektga aylantiradi
-							{ $unwind: '$favoriteProperty.memberData' },
+							// ichki 'favoriteShipment.memberData' massivini oddiy obyektga aylantiradi
+							{ $unwind: '$favoriteShipment.memberData' },
 						],
 						// metaCounter qismi — filtrlangan (sahifalanmagan) umumiy son
 						metaCounter: [{ $count: 'total' }],
@@ -126,10 +126,10 @@ export class LikeService {
 			// .exec() — so'rovni haqiqatan bazaga yuboradi, natija Promise sifatida qaytadi
 			.exec();
 
-		// bo'sh Properties obyekti tayyorlanadi, metaCounter to'g'ridan-to'g'ri ko'chiriladi
-		const result: Properties = { list: [], metaCounter: data[0].metaCounter };
-		// data[0].list massividagi har bir elementdan faqat 'favoriteProperty' qismi ajratib olinadi (map metodi orqali)
-		result.list = data[0].list.map((ele: T) => ele.favoriteProperty);
+		// bo'sh Shipments obyekti tayyorlanadi, metaCounter to'g'ridan-to'g'ri ko'chiriladi
+		const result: Shipments = { list: [], metaCounter: data[0].metaCounter };
+		// data[0].list massividagi har bir elementdan faqat 'favoriteShipment' qismi ajratib olinadi (map metodi orqali)
+		result.list = data[0].list.map((ele: T) => ele.favoriteShipment);
 
 		// tayyor natija qaytariladi
 		return result;

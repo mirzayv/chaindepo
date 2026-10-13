@@ -4,7 +4,7 @@ import { Controller, Get, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { ChainDepoBatchService } from './chaindepo-batch.service';
 // uchta konstanta lib/config.ts fayldan import qilinyapti
-import { BATCH_ROLLBACK, BATCH_TOP_PROPERTIES, BATCH_TOP_AGENTS } from './lib/config';
+import { BATCH_ROLLBACK, BATCH_TOP_SHIPMENTS, BATCH_TOP_CARRIERS } from './lib/config';
 
 // @Controller() — argumentsiz, ya'ni bu controller ildiz yo'lda ("/") ishlaydi
 @Controller()
@@ -36,26 +36,26 @@ export class ChainDepoBatchController {
 	}
 
 	// Har kuni 01:00:20 da ishlaydi — 20 soniyalik kechikish TASODIFIY EMAS: batchRollback avval reytinglarni 0ga tushirishi kerak, chunki bu metod aynan rank:0 shartiga qarab ishlaydi
-	@Cron('20 0 1 * * *', { name: BATCH_TOP_PROPERTIES })
-	public async batchTopProperties() {
+	@Cron('20 0 1 * * *', { name: BATCH_TOP_SHIPMENTS })
+	public async batchTopShipments() {
 		try {
-			this.logger['context'] = BATCH_TOP_PROPERTIES;
+			this.logger['context'] = BATCH_TOP_SHIPMENTS;
 			this.logger.debug('EXECUTED!');
 
-			await this.chainDepoBatchService.batchTopProperties();
+			await this.chainDepoBatchService.batchTopShipments();
 		} catch (error) {
 			this.logger.error(error);
 		}
 	}
 
 	// Har kuni 01:00:40 da ishlaydi — uchinchi navbatda
-	@Cron('40 0 1 * * *', { name: BATCH_TOP_AGENTS })
-	public async batchTopAgents() {
+	@Cron('40 0 1 * * *', { name: BATCH_TOP_CARRIERS })
+	public async batchTopCarriers() {
 		try {
-			this.logger['context'] = BATCH_TOP_AGENTS;
+			this.logger['context'] = BATCH_TOP_CARRIERS;
 			this.logger.debug('EXECUTED!');
 
-			await this.chainDepoBatchService.batchTopAgents();
+			await this.chainDepoBatchService.batchTopCarriers();
 		} catch (error) {
 			this.logger.error(error);
 		}

@@ -1,6 +1,6 @@
 import { Args, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { MemberService } from './member.service';
-import { AgentsInquiry, LoginInput, MemberInput, MembersInquiry } from '../../libs/dto/member/member.input';
+import { CarriersInquiry, LoginInput, MemberInput, MembersInquiry } from '../../libs/dto/member/member.input';
 import { Member, Members } from '../../libs/dto/member/member';
 import { UseGuards } from '@nestjs/common';
 import { AuthGuard } from '../auth/guards/auth.guard';
@@ -40,7 +40,7 @@ export class MemberResolver {
 		return `Hi ${memberNick}`;
 	}
 
-	@Roles(MemberType.USER, MemberType.AGENT)
+	@Roles(MemberType.USER, MemberType.CARRIER)
 	@UseGuards(RolesGuard)
 	@Query(() => String)
 	public async checkAuthRoles(@AuthMember() authMember: Member): Promise<string> {
@@ -72,12 +72,12 @@ export class MemberResolver {
 
 	@UseGuards(WithoutGuard)
 	@Query(() => Members)
-	public async getAgents(
-		@Args('input') input: AgentsInquiry,
+	public async getCarriers(
+		@Args('input') input: CarriersInquiry,
 		@AuthMember('_id') memberId: mongoose.ObjectId,
 	): Promise<Members> {
-		console.log('Query: getAgents');
-		return await this.memberService.getAgents(memberId, input);
+		console.log('Query: getCarriers');
+		return await this.memberService.getCarriers(memberId, input);
 	}
 
 	@UseGuards(AuthGuard)

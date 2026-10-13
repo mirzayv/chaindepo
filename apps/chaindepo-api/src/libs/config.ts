@@ -3,21 +3,20 @@ import { ObjectId } from 'bson';
 // T — bu loyihaning umumiy "har qanday obyekt" tipi, boshqa faylda e'lon qilingan, bu yerda funksiya parametrlarining tipini belgilash uchun ishlatiladi
 import { T } from './types/common';
 
-// Agentlar ro'yxatini saralash uchun ruxsat etilgan maydonlar ro'yxati — massiv, string qiymatlardan iborat
-export const availableAgentSorts = ['createdAt', 'updatedAt', 'memberLikes', 'memberViews', 'memberRank'];
+// Tashuvchilar (carrier) ro'yxatini saralash uchun ruxsat etilgan maydonlar ro'yxati — massiv, string qiymatlardan iborat
+export const availableCarrierSorts = ['createdAt', 'updatedAt', 'memberLikes', 'memberViews', 'memberRank'];
 // A'zolar ro'yxatini saralash uchun ruxsat etilgan maydonlar ro'yxati
 export const availableMemberSorts = ['createdAt', 'updatedAt', 'memberLikes', 'memberViews'];
 
-// Mulk qidiruvida ishlatiladigan qo'shimcha "checkbox" variantlari (masalan almashish yoki ijara)
-export const availableOptions = ['propertyBarter', 'propertyRent'];
-// Mulklar ro'yxatini saralash uchun ruxsat etilgan maydonlar — ko'p qatorli massiv, o'qishni osonlashtirish uchun
-export const availablePropertySorts = [
+// Yuklar (shipment) ro'yxatini saralash uchun ruxsat etilgan maydonlar — ko'p qatorli massiv, o'qishni osonlashtirish uchun
+export const availableShipmentSorts = [
 	'createdAt',
 	'updatedAt',
-	'propertyLikes',
-	'propertyViews',
-	'propertyRank',
-	'propertyPrice',
+	'shipmentLikes',
+	'shipmentViews',
+	'shipmentRank',
+	'shipmentPrice',
+	'shipmentWeight',
 ];
 
 // Maqolalar (board-article) ro'yxatini saralash uchun ruxsat etilgan maydonlar
@@ -41,7 +40,17 @@ export const getSerialForImage = (filename: string) => {
 	return uuidv4() + ext;
 };
 
-// shapeIntoMongoObjectId — 'target' parametrini (tipi 'any', ya'ni istalgan turdagi qiymat) qabul qiladi
+/** TRACKING CODE **/
+// Node.js'ning o'rnatilgan crypto moduli — tasodifiy baytlar yaratish uchun (qo'shimcha paket kerak emas)
+import { randomBytes } from 'crypto';
+import moment = require('moment');
+
+// generateTrackingCode — yuk uchun noyob kuzatuv kodi: 'CD' + YYMMDD + 8 ta katta hex belgi (masalan CD261013A1B2C3D4)
+export const generateTrackingCode = (): string => {
+	return 'CD' + moment().format('YYMMDD') + randomBytes(4).toString('hex').toUpperCase();
+};
+
+// shapeIntoMongoObjectId —'target' parametrini (tipi 'any', ya'ni istalgan turdagi qiymat) qabul qiladi
 export const shapeIntoMongoObjectId = (target: any) => {
 	// agar target string bo'lsa — yangi ObjectId obyektiga aylantiradi (argument sifatida target uzatiladi), aks holda o'zini qaytaradi
 	return typeof target === 'string' ? new ObjectId(target) : target;
@@ -138,26 +147,26 @@ export const lookupAuthMemberLiked = (memberId: T, targetRefId: string = '$_id')
 	};
 };
 
-// lookupFavorite — sevimli mulklar ro'yxatida, ichki joylashgan 'favoriteProperty' obyektining egasi (a'zosi) ma'lumotini olish uchun
+// lookupFavorite — sevimli yuklar ro'yxatida, ichki joylashgan 'favoriteShipment' obyektining egasi (a'zosi) ma'lumotini olish uchun
 export const lookupFavorite = {
 	$lookup: {
 		from: 'members',
-		// e'tibor bering, bu yerda ichki (nested) maydonga murojaat qilinyapti — 'favoriteProperty.memberId'
-		localField: 'favoriteProperty.memberId',
+		// e'tibor bering, bu yerda ichki (nested) maydonga murojaat qilinyapti — 'favoriteShipment.memberId'
+		localField: 'favoriteShipment.memberId',
 		foreignField: '_id',
-		// natija ham ichki joyga, 'favoriteProperty.memberData' sifatida qo'shiladi
-		as: 'favoriteProperty.memberData',
+		// natija ham ichki joyga, 'favoriteShipment.memberData' sifatida qo'shiladi
+		as: 'favoriteShipment.memberData',
 	},
 };
 
-// lookupVisit — ko'rilgan mulklar ro'yxatida, ichki joylashgan 'visitedProperty' obyektining egasi ma'lumotini olish uchun
+// lookupVisit — ko'rilgan yuklar ro'yxatida, ichki joylashgan 'visitedShipment' obyektining egasi ma'lumotini olish uchun
 export const lookupVisit = {
 	$lookup: {
 		from: 'members',
-		// ichki maydonga murojaat — 'visitedProperty.memberId'
-		localField: 'visitedProperty.memberId',
+		// ichki maydonga murojaat — 'visitedShipment.memberId'
+		localField: 'visitedShipment.memberId',
 		foreignField: '_id',
-		as: 'visitedProperty.memberData',
+		as: 'visitedShipment.memberData',
 	},
 };
 
