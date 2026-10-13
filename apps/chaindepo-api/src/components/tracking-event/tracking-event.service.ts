@@ -242,7 +242,8 @@ export class TrackingEventService {
 				.lean()
 				.exec();
 			if (lastEvent && lastEvent.eventLocation === input.eventLocation) {
-				throw new BadRequestException(Message.INVALID_STATUS_TRANSITION);
+				throw new BadRequestException(Message.SAME_LOCATION_AS_LAST_EVENT);
+				// Alohida xabar — noto'g'ri status o'tishidan farqlash uchun (masalan, bir xil so'rov ikki marta yuborilganda).
 			}
 		}
 	}

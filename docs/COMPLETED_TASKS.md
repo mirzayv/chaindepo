@@ -259,3 +259,10 @@ All paths are under `apps/chaindepo-api/src/`.
    - Negative checks: DELIVERED → IN_TRANSIT fails; a different carrier is rejected; the shipper cancels a second CREATED shipment, which writes a CANCELLED event.
    - Tamper test: edit one event's `eventNote` in Compass → `verifyShipmentChain` returns `valid: false` and that event's `brokenAtIndex`.
    - `getShipmentByTrackingCode`.
+
+## 7. Fix: ambiguous error on repeated IN_TRANSIT (2026-10-14)
+
+- **Report:** on shipment `6ace5092db5e552bc14ed719`, CREATED → PICKED_UP SEOUL → IN_TRANSIT DAEJON → IN_TRANSIT DAEGU returned "Invalid shipment status transition!".
+- **Finding (from the running API's public queries):** the IN_TRANSIT DAEGU event **was saved** (`6ace51cedb5e552bc14ed72e`, 15:44:14Z), `shipment.lastEventHash` points to it, and `verifyShipmentChain` returns `valid: true, totalEvents: 4`. The error came from a **second** DAEGU request, which the same-location rule correctly rejected. The last-event lookup works; a `null` lookup would let the event through, not reject it.
+- **Fix:** new `Message.SAME_LOCATION_AS_LAST_EVENT` for that case, so it is distinguishable from `INVALID_STATUS_TRANSITION`.
+- **Validation:** ✅ tsc api + batch, `nest build chaindepo-api`.

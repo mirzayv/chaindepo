@@ -20,6 +20,7 @@ export enum Message {
 	PROVIDE_ALLOWED_FORMAT = 'Please provide jpg, jpeg or png images!',
 	SELF_SUBSCRIPTION_DENIED = 'Self subscription is denied!',
 	INVALID_STATUS_TRANSITION = 'Invalid shipment status transition!',
+	SAME_LOCATION_AS_LAST_EVENT = 'IN_TRANSIT location must differ from the last event location!',
 	CHAIN_CONFLICT = 'Shipment was updated concurrently, please retry!',
 }
 
