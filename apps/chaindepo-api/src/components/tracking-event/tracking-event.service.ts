@@ -16,7 +16,7 @@
 import { BadRequestException, Injectable, InternalServerErrorException } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Connection, Model, ObjectId } from 'mongoose';
-import { ChainVerification, TrackingEvent } from '../../libs/dto/tracking-event/tracking-event';
+import { ChainVerification, EventAnchorStatus, TrackingEvent } from '../../libs/dto/tracking-event/tracking-event';
 import { TrackingEventInput } from '../../libs/dto/tracking-event/tracking-event.input';
 import { Shipment } from '../../libs/dto/shipment/shipment';
 import { Member } from '../../libs/dto/member/member';
@@ -25,6 +25,7 @@ import { MemberType } from '../../libs/enums/member.enum';
 import { Message } from '../../libs/enums/common.enum';
 import { T } from '../../libs/types/common';
 import { computeEventHash, GENESIS_HASH } from '../../libs/hash-chain';
+import { BlockchainService } from '../blockchain/blockchain.service';
 
 // Ruxsat etilgan holat o'tishlari. Orqaga qaytish yo'q; DELIVERED / CANCELLED'dan keyin hech narsa yo'q.
 const ALLOWED_TRANSITIONS: Record<ShipmentStatus, ShipmentStatus[]> = {
@@ -57,6 +58,8 @@ export class TrackingEventService {
 		// Shipment modeli shu yerda ham ro'yxatdan o'tgan — ShipmentModule'ni import qilmaymiz (aylanma bog'liqlik bo'lmasligi uchun).
 		@InjectConnection() private readonly connection: Connection,
 		// Tranzaksiya (session) ochish uchun.
+		private readonly blockchainService: BlockchainService,
+		// eventHash'ni Sepolia'ga yozish (anchor) va tekshirish.
 	) {}
 
 	public async createTrackingEvent(authMember: Member, input: TrackingEventInput): Promise<TrackingEvent> {
@@ -118,6 +121,8 @@ export class TrackingEventService {
 				result = await this.writeEvent(shipment, input, ownSession);
 			});
 			if (!result) throw new InternalServerErrorException(Message.CREATE_FAILED);
+			this.scheduleAnchor(result.event);
+			// Faqat commit'dan KEYIN. Tashqi session (genesis) bo'lsa — chaqiruvchi o'zi commit'dan keyin chaqiradi.
 			return result;
 		} finally {
 			await ownSession.endSession();
@@ -158,12 +163,81 @@ export class TrackingEventService {
 			// Hodisalar to'g'ri, lekin shipment.lastEventHash zanjir uchiga mos emas.
 		}
 
+		let anchoredEvents: number | null = null;
+		if (this.blockchainService.isEnabled()) {
+			const anchored = await Promise.all(events.map((event) => this.blockchainService.isAnchored(event.eventHash)));
+			anchoredEvents = anchored.filter((value) => value === true).length;
+			// On-chain hisoblanadi — eventTxHash'ga ishonilmaydi.
+		}
+
 		return {
 			valid: events.length > 0 && brokenAtIndex === null,
 			totalEvents: events.length,
 			brokenAtIndex,
 			lastEventHash: shipment.lastEventHash ?? null,
+			anchoredEvents,
 		};
+	}
+
+	public async getEventAnchorStatuses(shipmentId: ObjectId): Promise<EventAnchorStatus[]> {
+		// Ochiq (public): har bir hodisa uchun on-chain isAnchored(eventHash).
+		await this.findActiveShipment(shipmentId);
+		const events = (await this.trackingEventModel
+			.find({ shipmentId: shipmentId })
+			.sort({ createdAt: 1, _id: 1 })
+			.lean()
+			.exec()) as unknown as TrackingEvent[];
+
+		return await Promise.all(
+			events.map(async (event) => ({
+				eventId: event._id,
+				eventHash: event.eventHash,
+				eventTxHash: event.eventTxHash ?? null,
+				anchored: await this.blockchainService.isAnchored(event.eventHash),
+			})),
+		);
+	}
+
+	public scheduleAnchor(event: TrackingEvent): void {
+		// Fire-and-forget: GraphQL javobini kutdirmaydi va hech qachon xato qaytarmaydi.
+		if (!this.blockchainService.isEnabled()) return;
+		void this.anchorEvent(event).catch((err: any) => {
+			console.log('Anchor failed:', String(event._id), err?.shortMessage ?? err?.code);
+		});
+	}
+
+	public async anchorPendingEvents(): Promise<number> {
+		// ADMIN: eventTxHash null bo'lgan barcha hodisalarni ketma-ket anchor qiladi.
+		if (!this.blockchainService.isEnabled()) throw new BadRequestException(Message.BLOCKCHAIN_DISABLED);
+		const events = (await this.trackingEventModel
+			.find({ eventTxHash: null })
+			.sort({ createdAt: 1, _id: 1 })
+			.lean()
+			.exec()) as unknown as TrackingEvent[];
+
+		let count = 0;
+		for (const event of events) {
+			try {
+				const status = await this.anchorEvent(event);
+				if (status !== 'DISABLED') count++;
+				// ALREADY_ANCHORED — muvaffaqiyat, lekin tx yo'q (eventTxHash null qoladi).
+			} catch (err: any) {
+				console.log('Anchor failed:', String(event._id), err?.shortMessage ?? err?.code);
+				// Keyingi hodisaga o'tiladi.
+			}
+		}
+		return count;
+	}
+
+	private async anchorEvent(event: TrackingEvent): Promise<'ANCHORED' | 'ALREADY_ANCHORED' | 'DISABLED'> {
+		const result = await this.blockchainService.anchor(event.shipmentId, event.eventHash);
+		if (result.status === 'ANCHORED') {
+			await this.trackingEventModel
+				.updateOne({ _id: event._id, eventTxHash: null }, { eventTxHash: result.txHash })
+				.exec();
+			// eventTxHash hash'ga kirmaydi — zanjir buzilmaydi.
+		}
+		return result.status;
 	}
 
 	private async writeEvent(

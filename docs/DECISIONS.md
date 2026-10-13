@@ -10,7 +10,7 @@ Format: lightweight ADRs. Status values: **Accepted** (applied), **Proposed** (r
 | D-04 | Use plain `mv` (not `git mv`) and never commit or push from the agent | Accepted |
 | D-05 | Validate with `tsc --noEmit` + `nest build` per project; lint without `--fix` | Accepted |
 | D-06 | Do not fix the broken ESLint setup inside the rename layer | Accepted |
-| D-07 | Blockchain integration approach | **Partially accepted** (B applied 2026-10-14; A is next) |
+| D-07 | Blockchain integration approach | Accepted (B + A applied 2026-10-14: hash chain anchored on Sepolia) |
 | D-08 | Fate of the social modules (Like/Follow/View/BoardArticle) | **Partially accepted** (kept and re-targeted at shipments) |
 | D-09 | Role model replacing `USER`/`AGENT`/`ADMIN` | Accepted (`USER` = shipper, `CARRIER`, `ADMIN`) |
 | D-10 | Property → Shipment migration strategy | Accepted (in-place replacement) |
@@ -60,7 +60,7 @@ Format: lightweight ADRs. Status values: **Accepted** (applied), **Proposed** (r
 - **Risks:** No lint gate until it is fixed.
 - **Fix options:** (a) upgrade to ESLint 9 and add `typescript-eslint`, `@eslint/js`, `globals` as devDependencies; or (b) replace `eslint.config.mjs` with a `.eslintrc` for ESLint 8. Option (a) matches the existing config.
 
-## D-07: Blockchain integration approach (OPEN)
+## D-07: Blockchain integration approach (Accepted 2026-10-14: B + A)
 
 | Option | Description | Pros | Cons / risks |
 |---|---|---|---|
@@ -70,6 +70,8 @@ Format: lightweight ADRs. Status values: **Accepted** (applied), **Proposed** (r
 
 - **Suggested path:** Implement B first (it is needed for A anyway), then add A's anchoring as a batch job. This keeps C open for later.
 - **Outcome (2026-10-14):** B is implemented. SHA-256 (Node `crypto`) over canonical JSON with sorted keys, genesis prevHash = 64 zeros, `shipment.lastEventHash` as the chain tip, conditional update + event insert in one Mongo transaction (Atlas replica set). `eventTxHash` is reserved for A. A (ethers anchoring) is the next phase.
+- **Outcome A (2026-10-14):** every event is anchored individually (no Merkle batching) on the `ChainDepoAnchor` contract on Ethereum Sepolia, through `ethers` v6, from **chaindepo-api** (not the batch app). `shipmentKey = ethers.id(shipmentId)`, `eventHash = '0x' + sha256 hex`. Anchoring is fire-and-forget after the Mongo commit and goes through a single in-process queue (each tx waits for 1 confirmation before the next is sent). The ADMIN mutation `anchorPendingEvents` backfills. If the env vars are missing, anchoring is disabled with one warning and the app still works.
+- **Risks (A):** the queue is per process, so running several API instances with the same key would collide on nonces. Anchors still queued at a restart are lost; `anchorPendingEvents` recovers them. An event found "Already anchored" keeps `eventTxHash: null` (counted as anchored; the on-chain check is the source of truth). Each anchor costs Sepolia gas from the anchor wallet.
 
 ## D-08: Social modules (OPEN)
 

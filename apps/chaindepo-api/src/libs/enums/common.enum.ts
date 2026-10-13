@@ -22,6 +22,7 @@ export enum Message {
 	INVALID_STATUS_TRANSITION = 'Invalid shipment status transition!',
 	SAME_LOCATION_AS_LAST_EVENT = 'IN_TRANSIT location must differ from the last event location!',
 	CHAIN_CONFLICT = 'Shipment was updated concurrently, please retry!',
+	BLOCKCHAIN_DISABLED = 'Blockchain anchoring is disabled!',
 }
 
 export enum Direction {

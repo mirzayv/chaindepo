@@ -205,3 +205,25 @@ ComponentsModule
 ### GraphQL
 
 New: `createTrackingEvent`, `getTrackingEvents`, `verifyShipmentChain`, `getShipmentByTrackingCode`, `claimShipment`. New types: `TrackingEvent`, `ChainVerification`, input `TrackingEventInput`. `updateShipmentByAdmin` only accepts `DELETE` as a status now. Rules and the full table: [COMPLETED_TASKS.md](COMPLETED_TASKS.md) (2026-10-14).
+
+## 11. Blockchain step: anchoring on Ethereum Sepolia (2026-10-14)
+
+### Module graph now
+
+```
+ComponentsModule
+├─ ShipmentModule ──imports──▶ TrackingEventModule ──imports──▶ BlockchainModule
+├─ BlockchainModule is not registered in ComponentsModule directly; it has no Mongo models
+```
+
+### Configuration
+
+`SEPOLIA_RPC_URL`, `ANCHOR_CONTRACT_ADDRESS`, `ANCHOR_PRIVATE_KEY` (read from `process.env`). If any is missing or invalid: one warning at startup, anchoring disabled, everything else works. New dependency: `ethers` ^6.
+
+### Collection
+
+No schema change. `trackingEvents.eventTxHash` is filled with the Sepolia tx hash after a successful anchor. It is not part of the hash, so `verifyShipmentChain` is unaffected.
+
+### GraphQL
+
+New: `anchorPendingEvents` (ADMIN, `Int`), `getEventAnchorStatuses(shipmentId)` (public, `[EventAnchorStatus]`). `ChainVerification.anchoredEvents` (`Int`, nullable) added. Details: [COMPLETED_TASKS.md](COMPLETED_TASKS.md) (2026-10-14 anchoring).

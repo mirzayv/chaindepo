@@ -16,9 +16,10 @@ Legend: **P0** = blocking / do first, **P1** = this sprint, **P2** = after the d
 | ✅ | `TrackingEventModule` + SHA-256 hash chain, carrier status updates, `claimShipment`, `verifyShipmentChain` | Done 2026-10-14 (see [COMPLETED_TASKS.md](COMPLETED_TASKS.md)) |
 | P0 | Runtime smoke test of the hash chain | Playground steps in [COMPLETED_TASKS.md](COMPLETED_TASKS.md) (2026-10-14 §6); drop/recreate shipments created before 2026-10-14 |
 | P1 | Restrict ADMIN on signup | `MemberInput.memberType` accepts `ADMIN` with no check (security gap) |
-| P1 | On-chain anchoring (D-07 A) | **Next phase.** `ethers` job in `chaindepo-batch`: anchor `eventHash`es (or a Merkle root), fill `eventTxHash`. Reuse `libs/hash-chain.ts` |
+| ✅ | On-chain anchoring (D-07 A) | Done 2026-10-14 in chaindepo-api: `BlockchainModule`, fire-and-forget anchor queue, `anchorPendingEvents`, `getEventAnchorStatuses`, `verifyShipmentChain.anchoredEvents` (see [COMPLETED_TASKS.md](COMPLETED_TASKS.md)) |
+| P0 | Runtime smoke test of anchoring | Steps in [COMPLETED_TASKS.md](COMPLETED_TASKS.md) (2026-10-14 anchoring §5); fund the anchor wallet with Sepolia ETH |
+| P2 | Anchoring retry job | Periodic `anchorPendingEvents` equivalent in `chaindepo-batch` (would need its own wallet or a lock so it does not race the API queue on nonces) |
 | P1 | Carrier data on shipments | Optional `carrierData` `$lookup` (like `lookupMember`) for list/detail pages |
-| P2 | Blockchain layer | Per D-07: hashing service, then (option A) an `ethers` anchoring job in `chaindepo-batch` |
 | P2 | Batch jobs | Add logistics jobs (anchoring retries, delayed-shipment detection) next to the shipment/carrier ranking |
 | P2 | WebSocket tracking | Per-shipment subscriptions in `socket.gateway.ts` (D-12) |
 
@@ -32,7 +33,7 @@ Legend: **P0** = blocking / do first, **P1** = this sprint, **P2** = after the d
 | P1 | Pull UI strings into a terminology dictionary (§4) |
 | P2 | Build shipment list/detail/timeline/create pages against the new backend operations |
 | P2 | Switch routes; migrate MyPage + Admin; remove property pages |
-| P2 | Add a public `/verify` page for the blockchain proof |
+| P2 | Add a public `/verify` page for the blockchain proof (`verifyShipmentChain` + `getEventAnchorStatuses`, Sepolia Etherscan link per `eventTxHash`) |
 
 ## C. Testing
 

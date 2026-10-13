@@ -5,6 +5,7 @@ import { TrackingEventService } from './tracking-event.service';
 import TrackingEventSchema from '../../schemas/TrackingEvent.model';
 import ShipmentSchema from '../../schemas/Shipment.model';
 import { AuthModule } from '../auth/auth.module';
+import { BlockchainModule } from '../blockchain/blockchain.module';
 
 @Module({
 	imports: [
@@ -19,6 +20,7 @@ import { AuthModule } from '../auth/auth.module';
 			},
 		]),
 		AuthModule,
+		BlockchainModule,
 	],
 	providers: [TrackingEventResolver, TrackingEventService],
 	exports: [TrackingEventService],

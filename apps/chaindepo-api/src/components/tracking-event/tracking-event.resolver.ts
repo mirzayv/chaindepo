@@ -1,7 +1,7 @@
-import { Args, Mutation, Query, Resolver } from '@nestjs/graphql';
+import { Args, Int, Mutation, Query, Resolver } from '@nestjs/graphql';
 import { UseGuards } from '@nestjs/common';
 import { TrackingEventService } from './tracking-event.service';
-import { ChainVerification, TrackingEvent } from '../../libs/dto/tracking-event/tracking-event';
+import { ChainVerification, EventAnchorStatus, TrackingEvent } from '../../libs/dto/tracking-event/tracking-event';
 import { TrackingEventInput } from '../../libs/dto/tracking-event/tracking-event.input';
 import { Member } from '../../libs/dto/member/member';
 import { MemberType } from '../../libs/enums/member.enum';
@@ -41,5 +41,21 @@ export class TrackingEventResolver {
 		console.log('Query: verifyShipmentChain');
 		const shipmentId = shapeIntoMongoObjectId(input);
 		return await this.trackingEventService.verifyShipmentChain(shipmentId);
+	}
+
+	@UseGuards(WithoutGuard)
+	@Query(() => [EventAnchorStatus])
+	public async getEventAnchorStatuses(@Args('shipmentId') input: string): Promise<EventAnchorStatus[]> {
+		console.log('Query: getEventAnchorStatuses');
+		const shipmentId = shapeIntoMongoObjectId(input);
+		return await this.trackingEventService.getEventAnchorStatuses(shipmentId);
+	}
+
+	@Roles(MemberType.ADMIN)
+	@UseGuards(RolesGuard)
+	@Mutation(() => Int)
+	public async anchorPendingEvents(): Promise<number> {
+		console.log('Mutation: anchorPendingEvents');
+		return await this.trackingEventService.anchorPendingEvents();
 	}
 }

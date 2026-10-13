@@ -48,6 +48,7 @@ import { LikeService } from '../like/like.service';
 import { LikeInput } from '../../libs/dto/like/like.input';
 import { LikeGroup } from '../../libs/enums/like.enum';
 import { TrackingEventService } from '../tracking-event/tracking-event.service';
+import { TrackingEvent } from '../../libs/dto/tracking-event/tracking-event';
 
 @Injectable()
 export class ShipmentService {
@@ -75,12 +76,14 @@ export class ShipmentService {
 
 		const session = await this.connection.startSession();
 		let result: Shipment | undefined;
+		let genesisEvent: TrackingEvent | undefined;
 		try {
 			await session.withTransaction(async () => {
 				const [shipment] = await this.shipmentModel.create([input], { session });
 				const genesis = await this.trackingEventService.createGenesisEvent(shipment as unknown as Shipment, session);
 				// Genesis CREATED hodisasi (joy = shipmentOrigin) va shipment.lastEventHash — yuk bilan BIRGA yoziladi.
 				result = genesis.shipment;
+				genesisEvent = genesis.event;
 			});
 		} catch (err: any) {
 			console.log('Error, Service.model:', err.message);
@@ -89,6 +92,8 @@ export class ShipmentService {
 			await session.endSession();
 		}
 		if (!result) throw new BadRequestException(Message.CREATE_FAILED);
+		if (genesisEvent) this.trackingEventService.scheduleAnchor(genesisEvent);
+		// Commit'dan keyin genesis hodisasi Sepolia'ga yoziladi (fire-and-forget).
 
 		await this.memberService.memberStatsEditor({
 			_id: result.memberId,

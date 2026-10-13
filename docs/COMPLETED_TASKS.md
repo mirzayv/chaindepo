@@ -266,3 +266,68 @@ All paths are under `apps/chaindepo-api/src/`.
 - **Finding (from the running API's public queries):** the IN_TRANSIT DAEGU event **was saved** (`6ace51cedb5e552bc14ed72e`, 15:44:14Z), `shipment.lastEventHash` points to it, and `verifyShipmentChain` returns `valid: true, totalEvents: 4`. The error came from a **second** DAEGU request, which the same-location rule correctly rejected. The last-event lookup works; a `null` lookup would let the event through, not reject it.
 - **Fix:** new `Message.SAME_LOCATION_AS_LAST_EVENT` for that case, so it is distinguishable from `INVALID_STATUS_TRANSITION`.
 - **Validation:** ✅ tsc api + batch, `nest build chaindepo-api`.
+
+---
+
+# Completed Tasks: Session 2026-10-14 (anchoring on Ethereum Sepolia)
+
+Branch: `modification`. Nothing was committed or pushed by Claude. `.env` was not read or changed. With the user's approval, `ethers@^6` was installed (6.17.0).
+
+Every TrackingEvent hash (genesis included) is anchored on the user's `ChainDepoAnchor` contract on Sepolia (DECISIONS D-07 option A). The tx hash is saved in `eventTxHash`.
+
+## 1. Decisions taken with the user
+
+- Anchoring runs in **chaindepo-api** (not the batch app), fire-and-forget, through a single in-process queue.
+- "Already anchored" counts as success but stores no tx: `eventTxHash` stays `null`.
+- The on-chain check is a separate query (`getEventAnchorStatuses`), not a resolved field on `TrackingEvent`.
+
+## 2. Phases
+
+| Phase | Work | Validation |
+|---|---|---|
+| 1. Dependency | `npm install ethers@^6` | — |
+| 2+3. Blockchain module + integration | `BlockchainModule`/`BlockchainService`, DTOs, message, TrackingEvent/Shipment hooks, resolver. Validated together because the new required `ChainVerification.anchoredEvents` needs the service change | ✅ tsc api + batch, `nest build chaindepo-api` (twice; the second run after adding a `tx.wait` timeout) |
+| 4. Docs | This section, BACKEND_MIGRATION §11, DECISIONS D-07, NEXT_STEPS | — |
+
+Lint was not run (D-06). Runtime smoke test: **not run** (see §5).
+
+## 3. Files
+
+All paths are under `apps/chaindepo-api/src/`.
+
+| File | Change |
+|---|---|
+| `components/blockchain/blockchain.module.ts` (new) | Provides and exports `BlockchainService` |
+| `components/blockchain/blockchain.service.ts` (new) | Human-readable ABI (`anchor`, `isAnchored`, `EventAnchored`). Reads the 3 env vars; if one is missing or invalid it logs one warning that names only the variables, and disables anchoring. `JsonRpcProvider(url, 'sepolia', { staticNetwork: true })`. `anchor()` runs in a promise queue: `isAnchored` pre-check → `anchor(key, hash)` → `tx.wait(1, 180s)`; a revert "Already anchored" → `ALREADY_ANCHORED`. `isAnchored()` is read-only (outside the queue) and returns `null` on disabled or RPC error. The key and the RPC URL are never logged |
+| `libs/enums/common.enum.ts` | `Message.BLOCKCHAIN_DISABLED` |
+| `libs/dto/tracking-event/tracking-event.ts` | `ChainVerification.anchoredEvents` (Int, nullable), new `EventAnchorStatus` |
+| `components/tracking-event/tracking-event.module.ts` | Imports `BlockchainModule` |
+| `components/tracking-event/tracking-event.service.ts` | `scheduleAnchor` (fire-and-forget, errors only logged), `anchorPendingEvents`, `getEventAnchorStatuses`, `anchoredEvents` in `verifyShipmentChain`; `appendEvent` schedules the anchor after its own transaction commits |
+| `components/tracking-event/tracking-event.resolver.ts` | `anchorPendingEvents`, `getEventAnchorStatuses` |
+| `components/shipment/shipment.service.ts` | `createShipment` keeps the genesis event and schedules its anchor after the commit |
+
+## 4. GraphQL additions and behaviour
+
+| Operation | Kind | Guard |
+|---|---|---|
+| `anchorPendingEvents` → `Int` | Mutation | ADMIN |
+| `getEventAnchorStatuses(shipmentId)` → `[EventAnchorStatus { eventId, eventHash, eventTxHash, anchored }]` | Query | public |
+| `verifyShipmentChain` → adds `anchoredEvents` | Query | public |
+
+- **Mapping:** `shipmentKey = ethers.id(String(shipmentId))`, `eventHash (bytes32) = '0x' + eventHash`.
+- **When:** only after the Mongo commit. With its own transaction (`createTrackingEvent`, shipper CANCELLED), `appendEvent` schedules it; for the genesis event (external session), `createShipment` schedules it after the commit. The GraphQL response never waits on the chain.
+- **Save:** `updateOne({ _id, eventTxHash: null }, { eventTxHash })`. The field is not hashed, so the chain stays valid.
+- **`anchorPendingEvents`:** all events with `eventTxHash: null`, oldest first, one at a time through the same queue. It counts `ANCHORED` + `ALREADY_ANCHORED`. Other errors are logged and the loop goes on to the next event. If disabled → `BLOCKCHAIN_DISABLED`. The request lasts about one block (~12 s) per new tx.
+- **`anchored` / `anchoredEvents`:** read from `isAnchored()` on-chain, not from `eventTxHash`. `null` when disabled; one event's RPC error → `anchored: null` (not counted).
+
+## 5. Pending for the user
+
+1. Fund the anchor wallet with Sepolia ETH. Make sure it is the contract `owner` (`onlyOwner`).
+2. Smoke test (`npm run start:dev`):
+   - The startup log shows `Blockchain anchoring enabled (Sepolia)`.
+   - `createShipment` returns at once. About 15 s later, `getTrackingEvents` shows `eventTxHash` on the CREATED event, and Sepolia Etherscan shows `EventAnchored`.
+   - Add events → `verifyShipmentChain.anchoredEvents == totalEvents`; `getEventAnchorStatuses` all `anchored: true`.
+   - Set one `eventTxHash` to `null` in Compass → `anchorPendingEvents` returns ≥ 1 with no new tx (already anchored).
+   - Remove one var (e.g. comment out `ANCHOR_PRIVATE_KEY`) → one warning, the app works, `anchoredEvents: null`, and `anchorPendingEvents` returns "Blockchain anchoring is disabled!".
+3. Events created before this phase have `eventTxHash: null`: run `anchorPendingEvents` once as ADMIN.
+4. Run a single API instance per anchor key (the queue is per process).

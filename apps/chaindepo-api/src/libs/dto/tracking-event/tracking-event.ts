@@ -51,4 +51,24 @@ export class ChainVerification {
 
 	@Field(() => String, { nullable: true })
 	lastEventHash!: string | null;
+
+	@Field(() => Int, { nullable: true })
+	anchoredEvents!: number | null;
+	// On-chain isAnchored() === true bo'lgan hodisalar soni. null — anchoring o'chirilgan.
+}
+
+@ObjectType()
+export class EventAnchorStatus {
+	@Field(() => String)
+	eventId!: mongoose.ObjectId;
+
+	@Field(() => String)
+	eventHash!: string;
+
+	@Field(() => String, { nullable: true })
+	eventTxHash!: string | null;
+
+	@Field(() => Boolean, { nullable: true })
+	anchored!: boolean | null;
+	// null — anchoring o'chirilgan yoki RPC xatosi.
 }
