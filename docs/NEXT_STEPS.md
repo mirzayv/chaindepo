@@ -13,8 +13,10 @@ Legend: **P0** = blocking / do first, **P1** = this sprint, **P2** = after the d
 | P1 | Fix ESLint | Add `typescript-eslint`, `@eslint/js`, `globals` and upgrade to `eslint@9` (matches `eslint.config.mjs`), **or** switch to `.eslintrc` for ESLint 8. Then run lint without `--fix` and review |
 | P1 | Add a `typecheck` script | `"typecheck": "tsc --noEmit -p apps/chaindepo-api/tsconfig.app.json && tsc --noEmit -p apps/chaindepo-batch/tsconfig.app.json"` |
 | ✅ | Decouple shared DTOs, scaffold `ShipmentModule`, re-target Comment/Like/View, role rename, remove Property | Done 2026-10-13 (in-place replacement, see [COMPLETED_TASKS.md](COMPLETED_TASKS.md)) |
-| P1 | Scaffold `TrackingEventModule` | **Next phase.** Append-only `trackingEvents` with `hash` + `prevHash` (needed for every D-07 option). Update `Shipment.shipmentStatus` and `lastEventHash` on each event |
-| P1 | Carrier status updates | Today only ADMIN can set `PICKED_UP`/`IN_TRANSIT`/`DELIVERED`. Let the assigned CARRIER move the status through `createTrackingEvent` |
+| ✅ | `TrackingEventModule` + SHA-256 hash chain, carrier status updates, `claimShipment`, `verifyShipmentChain` | Done 2026-10-14 (see [COMPLETED_TASKS.md](COMPLETED_TASKS.md)) |
+| P0 | Runtime smoke test of the hash chain | Playground steps in [COMPLETED_TASKS.md](COMPLETED_TASKS.md) (2026-10-14 §6); drop/recreate shipments created before 2026-10-14 |
+| P1 | Restrict ADMIN on signup | `MemberInput.memberType` accepts `ADMIN` with no check (security gap) |
+| P1 | On-chain anchoring (D-07 A) | **Next phase.** `ethers` job in `chaindepo-batch`: anchor `eventHash`es (or a Merkle root), fill `eventTxHash`. Reuse `libs/hash-chain.ts` |
 | P1 | Carrier data on shipments | Optional `carrierData` `$lookup` (like `lookupMember`) for list/detail pages |
 | P2 | Blockchain layer | Per D-07: hashing service, then (option A) an `ethers` anchoring job in `chaindepo-batch` |
 | P2 | Batch jobs | Add logistics jobs (anchoring retries, delayed-shipment detection) next to the shipment/carrier ranking |
@@ -38,7 +40,7 @@ Legend: **P0** = blocking / do first, **P1** = this sprint, **P2** = after the d
 |---|---|
 | P0 | Runtime smoke test of the renamed apps: `npm run start:dev` and `npm run start:dev:batch`. Check Mongo connects to the new DB name, `/graphql` playground loads, `GET /` on batch returns "Welcome to ChainDepo BATCH Server", and WS connects |
 | P1 | Fix `apps/chaindepo-api/test/jest-e2e.json` usage; add a Mongo test DB (or `mongodb-memory-server`) so `npm run test:e2e` works |
-| P1 | Unit tests for `ShipmentService` and the hashing/hash-chain logic (deterministic hashes, tamper detection) |
+| P1 | Unit tests for `ShipmentService`, `libs/hash-chain.ts` (deterministic hashes, key order, null note) and `TrackingEventService` (transitions, `CHAIN_CONFLICT`, tamper detection in `verifyShipmentChain`) |
 | P2 | e2e for the GraphQL shipment flow: create → add events → verify |
 | P2 | Contract test: snapshot of the generated GraphQL schema, to catch accidental breaking renames |
 

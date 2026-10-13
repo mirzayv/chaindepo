@@ -15,8 +15,8 @@
  */
 
 import { BadRequestException, Injectable, InternalServerErrorException } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model, ObjectId } from 'mongoose';
+import { InjectConnection, InjectModel } from '@nestjs/mongoose';
+import { Connection, Model, ObjectId } from 'mongoose';
 import { Shipment, Shipments } from '../../libs/dto/shipment/shipment';
 import {
 	AllShipmentsInquiry,
@@ -47,16 +47,21 @@ import {
 import { LikeService } from '../like/like.service';
 import { LikeInput } from '../../libs/dto/like/like.input';
 import { LikeGroup } from '../../libs/enums/like.enum';
+import { TrackingEventService } from '../tracking-event/tracking-event.service';
 
 @Injectable()
 export class ShipmentService {
 	constructor(
 		@InjectModel('Shipment') private readonly shipmentModel: Model<Shipment>,
 		// shipmentModel — MongoDB'dagi "shipments" kolleksiyasi bilan ishlash uchun model.
+		@InjectConnection() private readonly connection: Connection,
+		// createShipment + genesis hodisasi bitta tranzaksiyada.
 		private memberService: MemberService,
 		// Shipper statistikasi (memberShipments) va carrier'ni tekshirish uchun.
 		private viewService: ViewService,
 		private likeService: LikeService,
+		private trackingEventService: TrackingEventService,
+		// Har bir status o'zgarishi hash zanjiriga hodisa sifatida yoziladi.
 	) {}
 
 	public async createShipment(input: ShipmentInput): Promise<Shipment> {
@@ -68,19 +73,55 @@ export class ShipmentService {
 		input.shipmentTrackingCode = generateTrackingCode();
 		// Kuzatuv kodi HAR DOIM serverda yaratiladi — mijozdan qabul qilinmaydi.
 
+		const session = await this.connection.startSession();
+		let result: Shipment | undefined;
 		try {
-			const result = await this.shipmentModel.create(input);
-			await this.memberService.memberStatsEditor({
-				_id: result.memberId,
-				targetKey: 'memberShipments',
-				modifier: 1,
+			await session.withTransaction(async () => {
+				const [shipment] = await this.shipmentModel.create([input], { session });
+				const genesis = await this.trackingEventService.createGenesisEvent(shipment as unknown as Shipment, session);
+				// Genesis CREATED hodisasi (joy = shipmentOrigin) va shipment.lastEventHash — yuk bilan BIRGA yoziladi.
+				result = genesis.shipment;
 			});
-			// Shipperning "yuklari soni" +1.
-			return result;
 		} catch (err: any) {
 			console.log('Error, Service.model:', err.message);
 			throw new BadRequestException(Message.CREATE_FAILED);
+		} finally {
+			await session.endSession();
 		}
+		if (!result) throw new BadRequestException(Message.CREATE_FAILED);
+
+		await this.memberService.memberStatsEditor({
+			_id: result.memberId,
+			targetKey: 'memberShipments',
+			modifier: 1,
+		});
+		// Shipperning "yuklari soni" +1.
+		return result;
+	}
+
+	public async getShipmentByTrackingCode(trackingCode: string): Promise<Shipment> {
+		// Ochiq (public) kuzatuv sahifasi uchun: ko'rish yozilmaydi, shipper ma'lumoti qo'shilmaydi.
+		const result = await this.shipmentModel
+			.findOne({ shipmentTrackingCode: trackingCode, shipmentStatus: { $ne: ShipmentStatus.DELETE } })
+			.lean()
+			.exec();
+		if (!result) throw new InternalServerErrorException(Message.NO_DATA_FOUND);
+		return result as unknown as Shipment;
+	}
+
+	public async claimShipment(carrierId: ObjectId, shipmentId: ObjectId): Promise<Shipment> {
+		// CARRIER tashuvchisi yo'q (carrierId: null) CREATED yukni o'ziga oladi. Zanjirga hodisa yozilmaydi.
+		await this.assertCarrier(carrierId);
+		const result = await this.shipmentModel
+			.findOneAndUpdate(
+				{ _id: shipmentId, shipmentStatus: ShipmentStatus.CREATED, carrierId: null },
+				// carrierId: null — maydon yo'q bo'lsa ham mos keladi. Shart tufayli ikki carrier bir yukni ola olmaydi.
+				{ carrierId: carrierId },
+				{ new: true },
+			)
+			.exec();
+		if (!result) throw new BadRequestException(Message.NOT_ALLOWED_REQUEST);
+		return result as unknown as Shipment;
 	}
 
 	public async getShipment(memberId: ObjectId, shipmentId: ObjectId): Promise<Shipment> {
@@ -129,10 +170,28 @@ export class ShipmentService {
 			await this.assertCarrier(input.carrierId as ObjectId);
 		}
 
+		if (shipmentStatus === ShipmentStatus.CANCELLED) {
+			// Bekor qilish ham hash zanjiriga CANCELLED hodisasi sifatida yoziladi (TrackingEventService orqali).
+			const target = await this.shipmentModel
+				.findOne({ _id: input._id, memberId: memberId, shipmentStatus: ShipmentStatus.CREATED })
+				.lean()
+				.exec();
+			if (!target) throw new InternalServerErrorException(Message.UPDATE_FAILED);
+
+			await this.trackingEventService.appendEvent(target as unknown as Shipment, {
+				memberId: memberId,
+				eventStatus: ShipmentStatus.CANCELLED,
+				eventLocation: target.shipmentOrigin,
+				// Shipper faqat CREATED holatida bekor qiladi — yuk hali jo'natilgan joyda.
+			});
+			delete input.shipmentStatus;
+			// Status allaqachon zanjir orqali o'rnatildi; quyida faqat qolgan maydonlar yangilanadi.
+		}
+
 		const search: T = {
 			_id: input._id,
 			memberId: memberId,
-			shipmentStatus: ShipmentStatus.CREATED,
+			shipmentStatus: shipmentStatus === ShipmentStatus.CANCELLED ? ShipmentStatus.CANCELLED : ShipmentStatus.CREATED,
 		};
 		// memberId sharti: shipper faqat O'ZINING yukini o'zgartira oladi.
 
@@ -312,8 +371,12 @@ export class ShipmentService {
 	}
 
 	public async updateShipmentByAdmin(input: ShipmentUpdate): Promise<Shipment> {
-		// ADMIN istalgan (o'chirilmagan) yukni o'zgartiradi va istalgan statusni qo'ya oladi.
+		// ADMIN istalgan (o'chirilmagan) yukni o'zgartiradi. Statusdan faqat DELETE (yumshoq o'chirish) mumkin —
+		// PICKED_UP / IN_TRANSIT / DELIVERED / CANCELLED faqat createTrackingEvent orqali (hash zanjiri).
 		const { shipmentStatus } = input;
+		if (shipmentStatus && shipmentStatus !== ShipmentStatus.DELETE) {
+			throw new BadRequestException(Message.NOT_ALLOWED_REQUEST);
+		}
 		const search: T = {
 			_id: input._id,
 			shipmentStatus: { $ne: ShipmentStatus.DELETE },
@@ -324,8 +387,8 @@ export class ShipmentService {
 			await this.assertCarrier(input.carrierId as ObjectId);
 		}
 
-		if (shipmentStatus === ShipmentStatus.DELIVERED) input.deliveredAt = moment().toDate();
-		else if (shipmentStatus === ShipmentStatus.DELETE) input.deletedAt = moment().toDate();
+		if (shipmentStatus === ShipmentStatus.DELETE) input.deletedAt = moment().toDate();
+		// deliveredAt endi faqat DELIVERED hodisasi orqali o'rnatiladi.
 
 		const result = await this.shipmentModel
 			.findOneAndUpdate(search, input, {

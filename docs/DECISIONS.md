@@ -10,12 +10,13 @@ Format: lightweight ADRs. Status values: **Accepted** (applied), **Proposed** (r
 | D-04 | Use plain `mv` (not `git mv`) and never commit or push from the agent | Accepted |
 | D-05 | Validate with `tsc --noEmit` + `nest build` per project; lint without `--fix` | Accepted |
 | D-06 | Do not fix the broken ESLint setup inside the rename layer | Accepted |
-| D-07 | Blockchain integration approach | **Open** |
+| D-07 | Blockchain integration approach | **Partially accepted** (B applied 2026-10-14; A is next) |
 | D-08 | Fate of the social modules (Like/Follow/View/BoardArticle) | **Partially accepted** (kept and re-targeted at shipments) |
 | D-09 | Role model replacing `USER`/`AGENT`/`ADMIN` | Accepted (`USER` = shipper, `CARRIER`, `ADMIN`) |
 | D-10 | Property → Shipment migration strategy | Accepted (in-place replacement) |
 | D-11 | Rename the GraphQL operations as one coordinated breaking change | Accepted (no deprecated wrappers) |
 | D-12 | Reuse the WebSocket gateway for live tracking | Proposed |
+| D-13 | Every lifecycle status change goes through the hash chain | Accepted |
 
 ---
 
@@ -68,6 +69,7 @@ Format: lightweight ADRs. Status values: **Accepted** (applied), **Proposed** (r
 | C. Full smart-contract state | Shipment lifecycle lives in Solidity | Maximum decentralisation | Highest effort, gas cost per event, contract upgrade complexity, slower UX |
 
 - **Suggested path:** Implement B first (it is needed for A anyway), then add A's anchoring as a batch job. This keeps C open for later.
+- **Outcome (2026-10-14):** B is implemented. SHA-256 (Node `crypto`) over canonical JSON with sorted keys, genesis prevHash = 64 zeros, `shipment.lastEventHash` as the chain tip, conditional update + event insert in one Mongo transaction (Atlas replica set). `eventTxHash` is reserved for A. A (ethers anchoring) is the next phase.
 
 ## D-08: Social modules (OPEN)
 
@@ -97,3 +99,9 @@ Format: lightweight ADRs. Status values: **Accepted** (applied), **Proposed** (r
 - Extend `socket.gateway.ts` (raw `ws`, token in query string) with per-shipment subscriptions that push new `TrackingEvent`s.
 - **Risks:** The current gateway is a broadcast-to-all chat with an in-memory history, so it needs room/topic filtering. The token in the URL query can end up in logs.
 - **Alternative:** GraphQL subscriptions (`graphql-ws`), which would need Apollo subscription configuration.
+
+## D-13: Every lifecycle status change goes through the hash chain (Accepted 2026-10-14)
+
+- **Decision:** `CREATED` (genesis), `PICKED_UP`, `IN_TRANSIT`, `DELIVERED` and `CANCELLED` are only set by `TrackingEventService.appendEvent`. `updateShipmentByAdmin` accepts only `DELETE` (soft delete, not a lifecycle event). Admins use `createTrackingEvent`. The shipper's `CANCELLED` in `updateShipment` writes a chain event too. `CANCELLED` through `createTrackingEvent` is ADMIN only. Carriers can `claimShipment` an unassigned CREATED shipment (no chain event).
+- **Why:** If any path changed `shipmentStatus` outside the chain, the chain would disagree with the shipment and the verification would be meaningless.
+- **Risks:** Shipments created before 2026-10-14 have no genesis event and cannot receive events. Admin corrections of a wrong status are impossible by design (the chain is append-only); a future "correction" event type could cover this.

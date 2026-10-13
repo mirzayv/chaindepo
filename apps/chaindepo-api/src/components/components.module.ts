@@ -7,12 +7,14 @@ import { LikeModule } from './like/like.module';
 import { ViewModule } from './view/view.module';
 import { FollowModule } from './follow/follow.module';
 import { BoardArticleModule } from './board-article/board-article.module';
+import { TrackingEventModule } from './tracking-event/tracking-event.module';
 
 @Module({
 	imports: [
 		MemberModule,
 		AuthModule,
 		ShipmentModule,
+		TrackingEventModule,
 		BoardArticleModule,
 		LikeModule,
 		ViewModule,

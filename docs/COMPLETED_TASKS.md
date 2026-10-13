@@ -176,3 +176,86 @@ Removed fields and filters: beds, rooms, barter, rent, `constructedAt`, the `opt
    db.properties.drop();
    ```
    Old likes, views and comments that point to property IDs become orphans; deleting them is optional. JWTs issued before the change carry `memberType: 'AGENT'`, so those users must log in again.
+
+---
+
+# Completed Tasks: Session 2026-10-14 (TrackingEvent + SHA-256 hash chain)
+
+Branch: `modification`. Nothing was committed or pushed by Claude. `.env` was not read or changed. No packages were installed. No blockchain/ethers code (the next phase).
+
+Every shipment status change is now an append-only `TrackingEvent` in a per-shipment SHA-256 hash chain (DECISIONS D-07 option B). `eventTxHash` stays `null` until on-chain anchoring.
+
+## 1. Decisions taken with the user
+
+- `claimShipment` is included: a CARRIER takes a CREATED shipment that has no `carrierId`. No chain event.
+- `updateShipmentByAdmin` can no longer set lifecycle statuses (only `DELETE`). Admins use `createTrackingEvent`.
+- `CANCELLED` through `createTrackingEvent` is ADMIN only. The shipper cancels through `updateShipment`. The carrier cannot cancel.
+- MongoDB Atlas is a replica set, so the chain writes use **transactions** (`session.withTransaction`) instead of a compensating rollback.
+
+## 2. Phases
+
+| Phase | Work | Validation |
+|---|---|---|
+| 1. Additive | Hash helper, `TrackingEvent` schema/DTOs, `TrackingEventModule`, 2 messages | ✅ tsc api + batch, `nest build chaindepo-api` (one fix: `AppendEventInput.memberId` accepts `string` because the JWT `Member._id` is a string) |
+| 2. Shipment integration | Genesis event on create, shipper cancel through the chain, admin status restriction, `getShipmentByTrackingCode`, `claimShipment` | ✅ tsc api + batch, `nest build chaindepo-api`; no duplicate GraphQL type names |
+| 3. Docs | This section, BACKEND_MIGRATION §10, DECISIONS D-07/D-13, NEXT_STEPS | — |
+
+Lint was not run (known broken, D-06). Runtime smoke test: **not run yet** (see §6).
+
+## 3. Files
+
+All paths are under `apps/chaindepo-api/src/`.
+
+### Created
+
+| File | Content |
+|---|---|
+| `libs/hash-chain.ts` | `GENESIS_HASH` (64 zeros), `canonicalJson` (sorted keys), `computeEventHash` (Node `crypto` SHA-256). The **only** hashing code; used by both write and verify |
+| `schemas/TrackingEvent.model.ts` | Collection `trackingEvents`; index `{ shipmentId: 1, createdAt: 1 }` |
+| `libs/dto/tracking-event/tracking-event.ts` | `TrackingEvent`, `ChainVerification` |
+| `libs/dto/tracking-event/tracking-event.input.ts` | `TrackingEventInput` |
+| `components/tracking-event/tracking-event.{module,service,resolver}.ts` | Registers both the `TrackingEvent` and `Shipment` models; does **not** import `ShipmentModule` (no circular dependency). Exports `TrackingEventService` |
+
+### Edited
+
+| File | Change |
+|---|---|
+| `libs/enums/common.enum.ts` | `Message.INVALID_STATUS_TRANSITION`, `Message.CHAIN_CONFLICT` |
+| `components/components.module.ts` | Registers `TrackingEventModule` |
+| `components/shipment/shipment.module.ts` | Imports `TrackingEventModule` |
+| `components/shipment/shipment.service.ts` | `createShipment` in a transaction with the genesis event; `updateShipment` CANCELLED → chain event; `updateShipmentByAdmin` only `DELETE`; new `getShipmentByTrackingCode`, `claimShipment` |
+| `components/shipment/shipment.resolver.ts` | `getShipmentByTrackingCode`, `claimShipment` |
+
+## 4. GraphQL additions
+
+| Operation | Kind | Guard |
+|---|---|---|
+| `createTrackingEvent(input: TrackingEventInput)` → `TrackingEvent` | Mutation | CARRIER, ADMIN |
+| `getTrackingEvents(shipmentId)` → `[TrackingEvent]` (oldest first) | Query | public |
+| `verifyShipmentChain(shipmentId)` → `ChainVerification { valid, totalEvents, brokenAtIndex, lastEventHash }` | Query | public |
+| `getShipmentByTrackingCode(trackingCode)` → `Shipment` (no view recording, no memberData) | Query | public |
+| `claimShipment(shipmentId)` → `Shipment` | Mutation | CARRIER |
+
+**Behaviour change:** `updateShipmentByAdmin` now rejects `CREATED`/`PICKED_UP`/`IN_TRANSIT`/`DELIVERED`/`CANCELLED`.
+
+## 5. Hash chain and status rules
+
+- **Hash:** `eventHash = sha256(canonicalJson({ shipmentId, memberId, eventStatus, eventLocation, eventNote ?? null, createdAt.toISOString(), prevHash }))`, with ids as hex strings. `createdAt` is set explicitly before hashing (Mongoose timestamps keep an existing `createdAt`).
+- **Genesis:** `createShipment` writes the shipment and a CREATED event (location = `shipmentOrigin`, prevHash = 64 zeros) in **one transaction**, and sets `shipment.lastEventHash`.
+- **Append:** `prevHash = shipment.lastEventHash`. In one transaction: conditional `findOneAndUpdate({ _id, shipmentStatus, lastEventHash: prevHash })` → status, `lastEventHash`, `deliveredAt` (on DELIVERED); if it does not match → `CHAIN_CONFLICT` and nothing is saved. Then the event insert. The status condition also prevents appending after a concurrent admin soft-delete.
+- **Transitions:** CREATED → PICKED_UP | CANCELLED; PICKED_UP → IN_TRANSIT | CANCELLED; IN_TRANSIT → IN_TRANSIT (different location from the previous event) | DELIVERED; nothing after DELIVERED/CANCELLED/DELETE. `CREATED` and `DELETE` cannot be sent to `createTrackingEvent`.
+- **Who:** PICKED_UP / IN_TRANSIT / DELIVERED: the assigned carrier (`shipment.carrierId === authMember._id`) or ADMIN. CANCELLED: ADMIN (createTrackingEvent) or the shipper (updateShipment, only while CREATED; location = `shipmentOrigin`).
+- **Verify:** events sorted `{ createdAt: 1, _id: 1 }`; at index i, `prevHash` must equal the previous `eventHash` (or genesis) and the recomputed hash must equal `eventHash`. The first failure gives `brokenAtIndex = i`. If every event is correct but the last hash differs from `shipment.lastEventHash`, then `brokenAtIndex = totalEvents`. No events → `valid: false`.
+- `DELETE` (soft delete) is not a lifecycle event and writes nothing to the chain.
+
+## 6. Pending for the user
+
+1. **Existing data:** shipments created before this phase have no genesis event, so `createTrackingEvent` rejects them (`INVALID_STATUS_TRANSITION`). Drop or recreate the test shipments.
+2. **Runtime smoke test** (`npm run start:dev`), then in the playground:
+   - Signup as USER, CARRIER and ADMIN. **Security gap (not fixed):** `MemberInput.memberType` accepts `ADMIN` on signup with no check. If signup ever refuses ADMIN, set `memberType: 'ADMIN'` in Compass and log in again so the JWT carries the role.
+   - `createShipment` without a carrier → `getTrackingEvents` (1 CREATED event, prevHash = 64 zeros).
+   - CARRIER `claimShipment` → `createTrackingEvent` PICKED_UP → IN_TRANSIT (BUSAN) → IN_TRANSIT (DAEGU) → DELIVERED (`deliveredAt` set).
+   - `verifyShipmentChain` → `{ valid: true, totalEvents: 5, brokenAtIndex: null }`.
+   - Negative checks: DELIVERED → IN_TRANSIT fails; a different carrier is rejected; the shipper cancels a second CREATED shipment, which writes a CANCELLED event.
+   - Tamper test: edit one event's `eventNote` in Compass → `verifyShipmentChain` returns `valid: false` and that event's `brokenAtIndex`.
+   - `getShipmentByTrackingCode`.

@@ -46,6 +46,25 @@ export class ShipmentResolver {
 		return await this.shipmentService.getShipment(memberId, shipmentId);
 	}
 
+	@UseGuards(WithoutGuard)
+	@Query((returns) => Shipment)
+	public async getShipmentByTrackingCode(@Args('trackingCode') trackingCode: string): Promise<Shipment> {
+		console.log('Query: getShipmentByTrackingCode');
+		return await this.shipmentService.getShipmentByTrackingCode(trackingCode);
+	}
+
+	@Roles(MemberType.CARRIER)
+	@UseGuards(RolesGuard)
+	@Mutation((returns) => Shipment)
+	public async claimShipment(
+		@Args('shipmentId') input: string,
+		@AuthMember('_id') memberId: mongoose.ObjectId,
+	): Promise<Shipment> {
+		console.log('Mutation: claimShipment');
+		const shipmentId = shapeIntoMongoObjectId(input);
+		return await this.shipmentService.claimShipment(shapeIntoMongoObjectId(memberId), shipmentId);
+	}
+
 	@Roles(MemberType.USER)
 	@UseGuards(RolesGuard)
 	@Mutation((returns) => Shipment)

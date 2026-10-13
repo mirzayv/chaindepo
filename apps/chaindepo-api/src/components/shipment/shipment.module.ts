@@ -7,6 +7,7 @@ import { AuthModule } from '../auth/auth.module';
 import { ViewModule } from '../view/view.module';
 import { MemberModule } from '../member/member.module';
 import { LikeModule } from '../like/like.module';
+import { TrackingEventModule } from '../tracking-event/tracking-event.module';
 
 @Module({
 	imports: [
@@ -20,6 +21,7 @@ import { LikeModule } from '../like/like.module';
 		ViewModule,
 		MemberModule,
 		LikeModule,
+		TrackingEventModule,
 	],
 	providers: [ShipmentResolver, ShipmentService],
 	exports: [ShipmentService],

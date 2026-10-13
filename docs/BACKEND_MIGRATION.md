@@ -1,6 +1,6 @@
 # Backend Migration: Nestar → ChainDepo
 
-> Status as of 2026-10-13 (branch `modification`). Phase 1 (the safe rename layer) is done. **Domain layer, step 1 is done:** `Shipment` replaced `Property` in place, `AGENT` became `CARRIER`, and the GraphQL operations were renamed (breaking). TrackingEvent is next. Details are in [COMPLETED_TASKS.md](COMPLETED_TASKS.md) (2026-10-13). Sections 4–8 below describe the state after the rename layer; the 2026-10-13 changes are summarised in §9.
+> Status as of 2026-10-14 (branch `modification`). Phase 1 (the safe rename layer) is done. **Domain layer, step 1 is done:** `Shipment` replaced `Property` in place, `AGENT` became `CARRIER`, and the GraphQL operations were renamed (breaking). **Domain layer, step 2 is done:** `TrackingEvent` with a SHA-256 hash chain (§10). On-chain anchoring is next. Details are in [COMPLETED_TASKS.md](COMPLETED_TASKS.md). Sections 4–8 below describe the state after the rename layer; the later changes are summarised in §9 and §10.
 
 ## 1. Original project: Nestar
 
@@ -177,3 +177,31 @@ ChainDepoBatchModule
 ### GraphQL
 
 The contract is **no longer** backward compatible with the Nestar frontend. See the rename table in [COMPLETED_TASKS.md](COMPLETED_TASKS.md) (2026-10-13 §4). New GraphQL enums: `ShipmentType`, `ShipmentStatus`, `ShipmentLocation`. Removed: `PropertyType`, `PropertyStatus`, `PropertyLocation`.
+
+## 10. Domain layer, step 2: TrackingEvent hash chain (2026-10-14)
+
+### Module graph now
+
+```
+ComponentsModule
+├─ MemberModule, AuthModule
+├─ ShipmentModule ──imports──▶ TrackingEventModule
+├─ TrackingEventModule   (models: TrackingEvent + Shipment; no import of ShipmentModule)
+├─ BoardArticleModule, LikeModule, ViewModule, CommentModule (→ ShipmentModule), FollowModule
+```
+
+### Collection
+
+| Collection | Schema | Notes |
+|---|---|---|
+| `trackingEvents` (new) | `TrackingEvent.model.ts` | `shipmentId`, `memberId`, `eventStatus` (ShipmentStatus), `eventLocation` (ShipmentLocation), `eventNote?`, `prevHash`, `eventHash`, `eventTxHash` (null until anchored), timestamps; index `{ shipmentId: 1, createdAt: 1 }` |
+| `shipments` | unchanged schema | `lastEventHash` is now always set (the tip of the chain); `shipmentStatus` and `deliveredAt` are written by chain events |
+
+### Hash chain
+
+- One helper: `apps/chaindepo-api/src/libs/hash-chain.ts` (`computeEventHash`, `GENESIS_HASH`). The anchoring phase should reuse it.
+- Writes use Mongo **transactions** (Atlas replica set): the conditional shipment update on `{ _id, shipmentStatus, lastEventHash: prevHash }` and the event insert commit together, or neither does.
+
+### GraphQL
+
+New: `createTrackingEvent`, `getTrackingEvents`, `verifyShipmentChain`, `getShipmentByTrackingCode`, `claimShipment`. New types: `TrackingEvent`, `ChainVerification`, input `TrackingEventInput`. `updateShipmentByAdmin` only accepts `DELETE` as a status now. Rules and the full table: [COMPLETED_TASKS.md](COMPLETED_TASKS.md) (2026-10-14).
