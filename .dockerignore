@@ -1,0 +1,28 @@
+# dependencies and build output (rebuilt inside the image)
+node_modules
+dist
+coverage
+
+# secrets: never sent to the build context
+.env
+.env.*
+*.pem
+
+# runtime data (lives in the uploads volume)
+uploads
+
+# not needed for the build
+.git
+.gitignore
+.vscode
+.idea
+.claude
+docs
+all_code.txt
+*.md
+*.log
+.DS_Store
+docker-compose*.yml
+deploy
+**/Dockerfile
+.dockerignore

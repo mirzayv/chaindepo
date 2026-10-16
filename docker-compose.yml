@@ -1,0 +1,64 @@
+# ChainDepo production stack: api + batch + Next frontend behind nginx (HTTPS)
+# Server layout:
+#   ./chaindepo         (this repo, docker-compose.yml and .env live here)
+#   ./chaindepo-next    (frontend repo, sibling folder)
+# .env (server only, never committed or baked into images) holds the app secrets plus DOMAIN=example.com
+# First certificate must exist before `docker compose up` (see docs/COMPLETED_TASKS.md, deployment guide).
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: apps/chaindepo-api/Dockerfile
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      PORT_API: 3007
+    expose:
+      - '3007'
+    volumes:
+      - uploads:/app/uploads
+    restart: unless-stopped
+
+  batch:
+    build:
+      context: .
+      dockerfile: apps/chaindepo-batch/Dockerfile
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      PORT_BATCH: 3008
+    expose:
+      - '3008'
+    restart: unless-stopped
+
+  next:
+    build:
+      context: ../chaindepo-next
+      args:
+        NEXT_PUBLIC_API_URL: https://api.${DOMAIN:?set DOMAIN in .env}/graphql
+        NEXT_PUBLIC_API_WS: wss://api.${DOMAIN:?set DOMAIN in .env}
+    expose:
+      - '3000'
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.27-alpine
+    depends_on:
+      - api
+      - next
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env}
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      # the official image runs envsubst on /etc/nginx/templates/*.template into /etc/nginx/conf.d/
+      - ./deploy/nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - uploads:/var/www/uploads:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - /var/www/certbot:/var/www/certbot:ro
+    restart: unless-stopped
+
+volumes:
+  uploads:

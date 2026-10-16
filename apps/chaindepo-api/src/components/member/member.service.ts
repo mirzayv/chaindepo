@@ -29,6 +29,7 @@ export class MemberService {
 	) {}
 
 	public async signup(input: MemberInput): Promise<Member> {
+		if (input.memberType === MemberType.ADMIN) throw new BadRequestException(Message.ADMIN_SIGNUP_NOT_ALLOWED);
 		input.memberPassword = await this.authService.hashPassword(input.memberPassword);
 		try {
 			const result = await this.memberModel.create(input);

@@ -32,6 +32,8 @@ import * as path from 'path';
 
 // Yuklashga ruxsat etilgan rasm formatlarining ro'yxati
 export const validMimeTypes = ['image/png', 'image/jpg', 'image/jpeg'];
+// upload folders under uploads/; target is client input, so only these are accepted
+export const validUploadTargets = ['member', 'shipment', 'article'];
 // getSerialForImage — bitta 'filename' parametrini (tipi avtomatik string deb chiqariladi) qabul qiluvchi funksiya, rasmga noyob nom beradi
 export const getSerialForImage = (filename: string) => {
 	// path.parse(filename).ext — berilgan fayl nomidan faqat kengaytmani (masalan '.jpg') ajratib, 'ext' konstantasiga saqlaydi

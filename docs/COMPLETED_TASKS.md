@@ -252,7 +252,7 @@ All paths are under `apps/chaindepo-api/src/`.
 
 1. **Existing data:** shipments created before this phase have no genesis event, so `createTrackingEvent` rejects them (`INVALID_STATUS_TRANSITION`). Drop or recreate the test shipments.
 2. **Runtime smoke test** (`npm run start:dev`), then in the playground:
-   - Signup as USER, CARRIER and ADMIN. **Security gap (not fixed):** `MemberInput.memberType` accepts `ADMIN` on signup with no check. If signup ever refuses ADMIN, set `memberType: 'ADMIN'` in Compass and log in again so the JWT carries the role.
+   - Signup as USER, CARRIER and ADMIN. **Security gap (fixed 2026-10-16, see the session below):** signup now refuses ADMIN. To create an admin, set `memberType: 'ADMIN'` in Compass and log in again so the JWT carries the role.
    - `createShipment` without a carrier → `getTrackingEvents` (1 CREATED event, prevHash = 64 zeros).
    - CARRIER `claimShipment` → `createTrackingEvent` PICKED_UP → IN_TRANSIT (BUSAN) → IN_TRANSIT (DAEGU) → DELIVERED (`deliveredAt` set).
    - `verifyShipmentChain` → `{ valid: true, totalEvents: 5, brokenAtIndex: null }`.
@@ -331,3 +331,72 @@ All paths are under `apps/chaindepo-api/src/`.
    - Remove one var (e.g. comment out `ANCHOR_PRIVATE_KEY`) → one warning, the app works, `anchoredEvents: null`, and `anchorPendingEvents` returns "Blockchain anchoring is disabled!".
 3. Events created before this phase have `eventTxHash: null`: run `anchorPendingEvents` once as ADMIN.
 4. Run a single API instance per anchor key (the queue is per process).
+
+---
+
+# Completed Tasks: Session 2026-10-16 (ADMIN signup block + deployment files)
+
+Branch: `modification`. Nothing was committed or pushed by Claude. `.env` was not read or changed. No packages were installed. Docker was **not** run, so the Docker and nginx files have not been tested.
+
+## 1. Security: no self-service ADMIN role
+
+| File | Change |
+|---|---|
+| `libs/enums/common.enum.ts` | `Message.ADMIN_SIGNUP_NOT_ALLOWED` ("Signup is allowed only as USER or CARRIER!") |
+| `components/member/member.service.ts` | `signup` throws `BadRequestException(ADMIN_SIGNUP_NOT_ALLOWED)` when `memberType === ADMIN`. With no `memberType`, the schema default is still USER |
+| `components/member/member.resolver.ts` | `updateMember` (any logged-in member) now drops `memberType` and `memberStatus` from the input. Before this change, a USER could promote themselves with `updateMember({ memberType: ADMIN })`. Only `updateMemberByAdmin` can change role and status |
+
+Existing ADMIN accounts are not changed. To create a new admin: set `memberType: 'ADMIN'` in Compass, then log in again.
+
+## 2. Deployment files
+
+| File | Content |
+|---|---|
+| `apps/chaindepo-api/Dockerfile` | Multi-stage `node:20-slim` image: `npm ci` → `nest build chaindepo-api` → `npm ci --omit=dev` → runtime as user `node`, `NODE_ENV=production`, `CMD node dist/apps/chaindepo-api/main.js`. Creates `uploads/{member,shipment,article}`. Build context = repo root |
+| `apps/chaindepo-batch/Dockerfile` | Same image layout for `chaindepo-batch` |
+| `.dockerignore` | Excludes `node_modules`, `dist`, `.env`/`.env.*`, `uploads`, `.git`, `docs`, `all_code.txt`, … |
+| `docker-compose.yml` | `api` (3007, `uploads` named volume at `/app/uploads`), `batch` (3008), `next` (built from `../chaindepo-next` with its existing Dockerfile, args `https://api.${DOMAIN}/graphql` / `wss://api.${DOMAIN}`), `nginx` (80/443). `api`/`batch` read secrets from the server `.env` via `env_file`; only `nginx` publishes ports |
+| `deploy/nginx/default.conf.template` | Port 80: `/.well-known/acme-challenge/` from `/var/www/certbot`, everything else → 301 HTTPS. Port 443: `${DOMAIN}` + `www.${DOMAIN}` → `next:3000`; `api.${DOMAIN}` → `api:3007` with WebSocket `Upgrade`/`Connection` headers, 1 h timeouts, `client_max_body_size 150m`, `/uploads/` served by nginx from the volume (read-only) |
+
+Notes:
+- `PORT_API`, `PORT_BATCH` and `NODE_ENV` are pinned in compose (this overrides `.env`). Because `NODE_ENV=production`, the database module uses `MONGO_PROD`.
+- MongoDB is external (Atlas). Compose has no mongo service.
+- Upload `target` allow-list (fixed in the same session): `imageUploader` and `imagesUploader` reject any `target` that is not one of `validUploadTargets` (`member`, `shipment`, `article` in `libs/config.ts`), with `Message.INVALID_UPLOAD_TARGET`. Before this, a crafted value like `../../x` could write files outside `uploads/`. ✅ tsc api + batch, `nest build chaindepo-api`.
+
+Validation: ✅ `tsc` api + batch, ✅ `nest build chaindepo-api`. Lint was not run (D-06).
+
+## 3. Server deployment guide
+
+Assumes Ubuntu, with DNS A records for `DOMAIN`, `www.DOMAIN` and `api.DOMAIN` pointing to the server, and ports 80/443 open.
+
+1. **Install Docker** (Engine + Compose plugin):
+   ```bash
+   curl -fsSL https://get.docker.com | sudo sh
+   sudo usermod -aG docker $USER   # log out and back in
+   ```
+2. **Clone both repos side by side**: `~/chaindepo` and `~/chaindepo-next`.
+3. **Create `~/chaindepo/.env`** with the same variables as local (`MONGO_PROD`, `SECRET_TOKEN`, `SEPOLIA_RPC_URL`, `ANCHOR_CONTRACT_ADDRESS`, `ANCHOR_PRIVATE_KEY`, …) **plus** `DOMAIN=yourdomain.com`. Run `chmod 600 .env`. Never commit it.
+4. **MongoDB Atlas → Network Access:** add the server's public IP. Otherwise the api and batch containers cannot connect.
+5. **First certificate** (before compose starts; port 80 must be free):
+   ```bash
+   sudo apt install -y certbot
+   sudo mkdir -p /var/www/certbot
+   sudo certbot certonly --standalone -d DOMAIN -d www.DOMAIN -d api.DOMAIN
+   ```
+   The certificate goes to `/etc/letsencrypt/live/DOMAIN/`, which is the path nginx expects.
+6. **Start the stack:**
+   ```bash
+   cd ~/chaindepo
+   docker compose up -d --build
+   docker compose logs -f api
+   ```
+7. **Renewal** (through the webroot, while nginx keeps running). Test once, then add it to root's crontab (`sudo crontab -e`):
+   ```bash
+   sudo certbot renew --dry-run --webroot -w /var/www/certbot
+   # crontab: every day at 03:00
+   0 3 * * * certbot renew --quiet --webroot -w /var/www/certbot --deploy-hook "docker compose -f /home/<user>/chaindepo/docker-compose.yml exec -T nginx nginx -s reload"
+   ```
+   The first `renew --webroot` replaces `standalone` with `webroot` in the renewal config.
+8. **Existing images (optional):** copy local uploads into the volume: `docker compose cp ./uploads/. api:/app/uploads/`.
+
+Updating after a pull: `docker compose up -d --build`. The `uploads` volume keeps its contents. Do **not** use `docker compose down -v`, because `-v` deletes the volume and all uploaded images.

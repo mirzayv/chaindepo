@@ -10,7 +10,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { MemberType } from '../../libs/enums/member.enum';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { MemberUpdate } from '../../libs/dto/member/member.update';
-import { getSerialForImage, shapeIntoMongoObjectId, validMimeTypes } from '../../libs/config';
+import { getSerialForImage, shapeIntoMongoObjectId, validMimeTypes, validUploadTargets } from '../../libs/config';
 import { WithoutGuard } from '../auth/guards/without.guard';
 import { GraphQLUpload, FileUpload } from 'graphql-upload';
 import { createWriteStream } from 'fs';
@@ -56,6 +56,9 @@ export class MemberResolver {
 	): Promise<Member> {
 		console.log('Mutation: updateMember');
 		delete input._id;
+		// role and status are admin-only fields (see updateMemberByAdmin)
+		delete input.memberType;
+		delete input.memberStatus;
 		return await this.memberService.updateMember(memberId, input);
 	}
 
@@ -120,6 +123,7 @@ export class MemberResolver {
 	): Promise<string> {
 		console.log('Mutation: imageUploader');
 
+		if (!validUploadTargets.includes(String(target))) throw new Error(Message.INVALID_UPLOAD_TARGET);
 		if (!filename) throw new Error(Message.UPLOAD_FAILED);
 		const validMime = validMimeTypes.includes(mimetype);
 		if (!validMime) throw new Error(Message.PROVIDE_ALLOWED_FORMAT);
@@ -147,6 +151,9 @@ export class MemberResolver {
 		@Args('target') target: String,
 	): Promise<string[]> {
 		console.log('Mutation: imagesUploader');
+
+		// checked before the per-file loop, whose catch would swallow the error
+		if (!validUploadTargets.includes(String(target))) throw new Error(Message.INVALID_UPLOAD_TARGET);
 
 		const uploadedImages: string[] = [];
 		const promisedList = files.map(async (img: Promise<FileUpload>, index: number): Promise<Promise<void>> => {
