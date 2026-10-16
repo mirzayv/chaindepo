@@ -19,11 +19,15 @@ interface InfoPayload {
 	action: string;
 }
 
+// application close code (4000-4999 range) sent to connections without a valid token
+const WS_CLOSE_UNAUTHORIZED = 4401;
+
 @WebSocketGateway({ transports: ['websocket'], secure: false })
 export class SocketGateway implements OnGatewayInit {
 	private logger: Logger = new Logger('SocketEventsGateway');
 	private summaryClient: number = 0;
-	private clientsAuthMap = new Map<WebSocket, Member | null>();
+	// only authenticated members are kept here; this map is the chat room
+	private clientsAuthMap = new Map<WebSocket, Member>();
 	private messagesList: MessagePayload[] = [];
 
 	constructor(private authService: AuthService) {}
@@ -48,10 +52,19 @@ export class SocketGateway implements OnGatewayInit {
 
 	public async handleConnection(client: WebSocket, req: any) {
 		const authMember = await this.retrieveAuth(req);
+		if (!authMember?._id) {
+			// guest: not added to the room, gets no history or online count
+			this.logger.verbose('Rejected guest connection');
+			client.close(WS_CLOSE_UNAUTHORIZED, 'Unauthorized');
+			return;
+		}
+		// the client may have closed while the token was being verified
+		if (client.readyState !== WebSocket.OPEN) return;
+
 		this.summaryClient++;
 		this.clientsAuthMap.set(client, authMember);
 
-		const clientNick: string = authMember?.memberNick ?? 'Guest';
+		const clientNick: string = authMember.memberNick;
 		this.logger.verbose(`Connected [${clientNick}] & total: [${this.summaryClient}]`);
 
 		const infoMsg: InfoPayload = {
@@ -65,11 +78,13 @@ export class SocketGateway implements OnGatewayInit {
 	}
 
 	public handleDisconnect(client: WebSocket) {
-		const authMember = this.clientsAuthMap.get(client) ?? null;
+		const authMember = this.clientsAuthMap.get(client);
+		// rejected guests were never counted or announced
+		if (!authMember) return;
 		this.summaryClient--;
 		this.clientsAuthMap.delete(client);
 
-		const clientNick: string = authMember?.memberNick ?? 'Guest';
+		const clientNick: string = authMember.memberNick;
 		this.logger.verbose(`Disconnected [${clientNick}] & total: [${this.summaryClient}]`);
 
 		const infoMsg: InfoPayload = {
@@ -83,14 +98,16 @@ export class SocketGateway implements OnGatewayInit {
 
 	@SubscribeMessage('message')
 	public handleMessage(client: WebSocket, payload: string): void {
-		const authMember = this.clientsAuthMap.get(client) ?? null;
+		const authMember = this.clientsAuthMap.get(client);
+		// ignore messages from guests (or sent before the token check finished)
+		if (!authMember) return;
 		const newMessage: MessagePayload = {
 			event: 'message',
 			text: payload,
 			memberData: authMember,
 		};
 
-		const clientNick: string = authMember?.memberNick ?? 'Guest';
+		const clientNick: string = authMember.memberNick;
 		this.logger.verbose(`NEW MESSAGE [${clientNick}]: ${payload}`);
 
 		this.messagesList.push(newMessage);
@@ -99,8 +116,10 @@ export class SocketGateway implements OnGatewayInit {
 		this.emitMessage(newMessage);
 	}
 
+	// both send only to room members (clientsAuthMap), never to every socket in server.clients,
+	// so a connection that is still being verified or is a guest receives nothing
 	private broadcastMessage(sender: WebSocket, message: InfoPayload | MessagePayload) {
-		this.server.clients.forEach((client) => {
+		this.clientsAuthMap.forEach((_member, client) => {
 			if (client !== sender && client.readyState === WebSocket.OPEN) {
 				client.send(JSON.stringify(message));
 			}
@@ -108,7 +127,7 @@ export class SocketGateway implements OnGatewayInit {
 	}
 
 	private emitMessage(message: InfoPayload | MessagePayload) {
-		this.server.clients.forEach((client) => {
+		this.clientsAuthMap.forEach((_member, client) => {
 			if (client.readyState === WebSocket.OPEN) {
 				client.send(JSON.stringify(message));
 			}

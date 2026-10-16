@@ -400,3 +400,17 @@ Assumes Ubuntu, with DNS A records for `DOMAIN`, `www.DOMAIN` and `api.DOMAIN` p
 8. **Existing images (optional):** copy local uploads into the volume: `docker compose cp ./uploads/. api:/app/uploads/`.
 
 Updating after a pull: `docker compose up -d --build`. The `uploads` volume keeps its contents. Do **not** use `docker compose down -v`, because `-v` deletes the volume and all uploaded images.
+
+---
+
+# Completed Tasks: Session 2026-10-17 (chat socket: members only)
+
+Branch: `modification`. Nothing was committed or pushed by Claude. `.env` was not read.
+
+`apps/chaindepo-api/src/socket/socket.gateway.ts`:
+- A connection without a valid `?token=` (no member `_id`) is closed with code `4401 Unauthorized`. It is not added to the room, does not change the online count, and gets no `info` or `getMessages`.
+- `clientsAuthMap` holds only authenticated members and acts as the room. `emitMessage`/`broadcastMessage` send to that map instead of to every socket in `server.clients`, so a socket whose token is still being verified receives nothing.
+- `handleMessage` ignores sockets that are not in the map. `handleDisconnect` ignores rejected guests (no count change, no `left` broadcast).
+- Logged-in members work as before. The frontend does not reconnect on close; it reopens the socket with the token on login (`reconnectChatSocket`), so a guest who logs in joins the chat.
+
+Validation: ✅ `npm run build`.
