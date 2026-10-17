@@ -10,7 +10,7 @@ import { AssistantAnswer } from '../../libs/dto/assistant/assistant';
 import { T } from '../../libs/types/common';
 
 const SYSTEM_INSTRUCTION =
-	'You are the ChainDepo assistant. ChainDepo is a shipment tracking platform in Korea. Shippers create shipments and get a tracking code; carriers pick them up and move them through Created → Picked up → In transit → Delivered. Every tracking event is SHA-256 hash-chained to the previous one and anchored on Ethereum Sepolia, so anyone can verify the history on the tracking page. Answer briefly (max ~120 words), in the same language the user writes in (English, Korean, Russian or Uzbek). Only help with ChainDepo usage, shipments and logistics questions; politely decline unrelated requests. Never invent shipment data — only use the context block. Don\'t give legal or financial advice.';
+	'You are the ChainDepo assistant. ChainDepo is a shipment tracking platform in Korea. Shippers create shipments and get a tracking code; carriers pick them up and move them through Created → Picked up → In transit → Delivered. Every tracking event is SHA-256 hash-chained to the previous one and anchored on Ethereum Sepolia, so anyone can verify the history on the tracking page. Answer briefly (max ~120 words), in the same language the user writes in (English, Korean, Russian or Uzbek). Only help with ChainDepo usage, shipments and logistics questions; politely decline unrelated requests. Never invent shipment data — only use the context block. Don\'t give legal or financial advice. Reply in plain text only. Do not use Markdown (no **, no #, no backticks). For steps, use simple numbered lines like \'1. ...\'.';
 
 // replies are returned as normal answers (not exceptions), so the chat UI can show them as is
 const Reply = {
@@ -18,6 +18,7 @@ const Reply = {
 	NOT_CONFIGURED: 'The assistant is not configured yet.',
 	BUSY: 'The assistant is busy right now, please try again in a minute.',
 	FAILED: 'Sorry, something went wrong.',
+	NO_ANSWER: "Sorry, I couldn't answer that. Please rephrase.",
 } as const;
 
 const DAILY_LIMIT = 20;
@@ -51,11 +52,17 @@ export class AssistantService {
 		const context = await this.buildTrackingContext(message);
 		const userText = context ? `${context}\n\n[User message]\n${message}` : message;
 
-		const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+		const model = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
 		const generationConfig: T = { maxOutputTokens: 600, temperature: 0.3 };
-		// 2.5 Flash models "think" by default and thinking tokens count toward maxOutputTokens,
-		// which can leave an empty reply; Flash allows turning it off (Pro does not)
-		if (/^gemini-2\.5-flash/.test(model)) generationConfig.thinkingConfig = { thinkingBudget: 0 };
+		// thinking tokens count toward maxOutputTokens and can leave an empty reply:
+		// 2.5 Flash can turn thinking off (Pro cannot); Gemini 3 uses thinkingLevel instead of thinkingBudget,
+		// so keep it low and leave room for the answer
+		if (/^gemini-2\.5-flash/.test(model)) {
+			generationConfig.thinkingConfig = { thinkingBudget: 0 };
+		} else if (model.startsWith('gemini-3')) {
+			generationConfig.thinkingConfig = { thinkingLevel: 'low' };
+			generationConfig.maxOutputTokens = 1024;
+		}
 
 		const body = {
 			systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
@@ -78,10 +85,14 @@ export class AssistantService {
 			const reply = (candidate?.content?.parts ?? [])
 				.map((part: T) => part?.text ?? '')
 				.join('')
+				// safety net: the chat UI shows plain text, so drop leftover bold markers
+				.replace(/\*\*|__/g, '')
 				.trim();
 			if (!reply) {
-				this.logger.error(`Gemini returned no text (finishReason: ${candidate?.finishReason ?? 'unknown'})`);
-				return { reply: Reply.FAILED };
+				// e.g. MAX_TOKENS (spent on thinking) or SAFETY; promptFeedback.blockReason when the prompt itself was blocked
+				const reason = candidate?.finishReason ?? response.data?.promptFeedback?.blockReason ?? 'unknown';
+				this.logger.warn(`Gemini returned no text (finishReason: ${reason})`);
+				return { reply: Reply.NO_ANSWER };
 			}
 			return { reply };
 		} catch (err) {

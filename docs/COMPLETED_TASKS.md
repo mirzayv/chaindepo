@@ -461,3 +461,13 @@ GEMINI_MODEL=gemini-2.5-flash
 `GEMINI_MODEL` is optional (default `gemini-2.5-flash`). After editing the server `.env`, run `docker compose up -d api`; compose recreates the container because the env changed.
 
 Validation: ✅ tsc api + batch, ✅ `npm run build`. Not run against the real Gemini API.
+
+## Update: Gemini 3 default (2026-10-17)
+
+Gemini returned 404: `gemini-2.5-flash` is no longer available to new users.
+- The default `GEMINI_MODEL` is now `gemini-3.8-flash`.
+- Models whose names start with `gemini-3` send `thinkingConfig: { thinkingLevel: 'low' }` and `maxOutputTokens: 1024`. Gemini 3 uses `thinkingLevel` instead of `thinkingBudget`, and thinking tokens count toward the output limit. The `gemini-2.5-flash*` branch (`thinkingBudget: 0`, 600 tokens) is unchanged.
+- A response with no text parts logs `finishReason` (or `promptFeedback.blockReason`) as a warning and replies "Sorry, I couldn't answer that. Please rephrase." Before this, it replied "Sorry, something went wrong."
+- `.env`: `GEMINI_MODEL=gemini-3.8-flash`, or remove the line to use the default. An old `GEMINI_MODEL=gemini-2.5-flash` line would keep returning 404.
+
+Validation: ✅ `npm run build`. Not run against the real Gemini API.
