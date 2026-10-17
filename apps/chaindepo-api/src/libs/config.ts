@@ -32,6 +32,22 @@ import * as path from 'path';
 
 // Yuklashga ruxsat etilgan rasm formatlarining ro'yxati
 export const validMimeTypes = ['image/png', 'image/jpg', 'image/jpeg'];
+/** member input rules (signup and profile update); login stays lenient so old accounts still work */
+export const MEMBER_NICK_REGEX = /^[A-Za-z0-9_]+$/;
+export const MEMBER_NICK_MESSAGE = 'Nickname: 3–20 letters, numbers or _';
+export const MEMBER_PASSWORD_REGEX = /^(?=.*[A-Za-z])(?=.*\d).+$/;
+export const MEMBER_PASSWORD_MESSAGE = 'Password: 8–64 characters with at least one letter and one number';
+export const MEMBER_PHONE_REGEX = /^01[016789]\d{7,8}$/;
+export const MEMBER_PHONE_MESSAGE = 'Phone: Korean mobile number, e.g. 01012345678';
+
+// '+82 10-1234-5678' → '01012345678': strip spaces and dashes, then a leading +82 becomes 0.
+// Used by @Transform (validation) and again in MemberService before saving, because the global
+// ValidationPipe has no transform: true, so resolvers receive the raw value.
+export const normalizeMemberPhone = (value: unknown): unknown => {
+	if (typeof value !== 'string') return value;
+	return value.replace(/[\s-]/g, '').replace(/^\+82/, '0');
+};
+
 // upload folders under uploads/; target is client input, so only these are accepted
 export const validUploadTargets = ['member', 'shipment', 'article'];
 // getSerialForImage — bitta 'filename' parametrini (tipi avtomatik string deb chiqariladi) qabul qiluvchi funksiya, rasmga noyob nom beradi

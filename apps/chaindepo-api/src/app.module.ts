@@ -28,12 +28,17 @@ import { SocketModule } from './socket/socket.module';
 			// formatError — xatolarni chiroyli formatga keltiradigan funksiya, parametri error (tipi T)
 			formatError: (error: T) => {
 				// yangi obyekt yaratiladi, kerakli maydonlar ajratib olinadi
+				// xato xabari — birinchi mavjudi olinadi (|| operatori). Apollo 4 + Nest 10'da HttpException javobi
+				// extensions.originalError'da keladi; ValidationPipe xabarlari massiv bo'ladi — mijozga birinchisi qaytariladi
+				const rawMessage =
+					error?.extensions?.originalError?.message ||
+					error?.extensions?.exception?.response?.message ||
+					error?.extensions?.response?.message ||
+					error?.message;
 				const graphQLFormattedError = {
 					// xato kodi
 					code: error?.extensions?.code,
-					// xato xabari — uchta joydan birinchi mavjudi olinadi (|| operatori)
-					message:
-						error?.extensions?.exception?.response?.message || error?.extensions?.response?.message || error?.message,
+					message: Array.isArray(rawMessage) ? rawMessage[0] : rawMessage,
 				};
 				// konsolga chiqariladi
 				console.log('GRAPHQL GLOBAL ERR:', graphQLFormattedError);

@@ -1,22 +1,39 @@
 import { Field, InputType, Int } from '@nestjs/graphql';
-import { IsIn, IsNotEmpty, IsOptional, Length, Min } from 'class-validator';
+import { IsIn, IsNotEmpty, IsOptional, Length, Matches, Min } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { MemberAuthType, MemberStatus, MemberType } from '../../enums/member.enum';
-import { availableCarrierSorts, availableMemberSorts } from '../../config';
+import {
+	availableCarrierSorts,
+	availableMemberSorts,
+	MEMBER_NICK_MESSAGE,
+	MEMBER_NICK_REGEX,
+	MEMBER_PASSWORD_MESSAGE,
+	MEMBER_PASSWORD_REGEX,
+	MEMBER_PHONE_MESSAGE,
+	MEMBER_PHONE_REGEX,
+	normalizeMemberPhone,
+} from '../../config';
 import { Direction } from '../../enums/common.enum';
 
+// each field uses one message for all its checks, so the first error the client sees is always the right one
 @InputType()
 export class MemberInput {
-	@IsNotEmpty()
-	@Length(3, 12)
+	@IsNotEmpty({ message: MEMBER_NICK_MESSAGE })
+	@Length(3, 20, { message: MEMBER_NICK_MESSAGE })
+	@Matches(MEMBER_NICK_REGEX, { message: MEMBER_NICK_MESSAGE })
 	@Field(() => String)
 	memberNick!: string;
 
-	@IsNotEmpty()
-	@Length(5, 12)
+	@IsNotEmpty({ message: MEMBER_PASSWORD_MESSAGE })
+	@Length(8, 64, { message: MEMBER_PASSWORD_MESSAGE })
+	@Matches(MEMBER_PASSWORD_REGEX, { message: MEMBER_PASSWORD_MESSAGE })
 	@Field(() => String)
 	memberPassword!: string;
 
-	@IsNotEmpty()
+	// validated after normalization; MemberService normalizes again before saving
+	@Transform(({ value }) => normalizeMemberPhone(value))
+	@IsNotEmpty({ message: MEMBER_PHONE_MESSAGE })
+	@Matches(MEMBER_PHONE_REGEX, { message: MEMBER_PHONE_MESSAGE })
 	@Field(() => String)
 	memberPhone!: string;
 
@@ -31,13 +48,14 @@ export class MemberInput {
 
 @InputType()
 export class LoginInput {
+	// lenient on purpose (no pattern checks): accounts created under the old rules must still log in
 	@IsNotEmpty()
-	@Length(3, 12)
+	@Length(3, 20)
 	@Field(() => String)
 	memberNick!: string;
 
 	@IsNotEmpty()
-	@Length(5, 12)
+	@Length(1, 64)
 	@Field(() => String)
 	memberPassword!: string;
 }

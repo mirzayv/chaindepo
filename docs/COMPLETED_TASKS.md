@@ -490,3 +490,24 @@ The system instruction now asks for plain text (no Markdown; steps as `1. ...`).
 - The tracking lookup is unchanged (public data only).
 
 Validation: ✅ `npm run build`. Not run against the real Gemini API.
+
+---
+
+# Completed Tasks: Session 2026-10-17 (member input validation)
+
+Branch: `modification`. Nothing was committed or pushed by Claude. `.env` was not read.
+
+| File | Change |
+|---|---|
+| `libs/config.ts` | `MEMBER_{NICK,PASSWORD,PHONE}_{REGEX,MESSAGE}` and `normalizeMemberPhone` (removes spaces and dashes; a leading `+82` becomes `0`) |
+| `libs/dto/member/member.input.ts` | `MemberInput`: nick `Length(3, 20)` + `^[A-Za-z0-9_]+$`; password `Length(8, 64)` + at least one letter and one digit; phone `@Transform(normalizeMemberPhone)` + `^01[016789]\d{7,8}$`. Every check on a field uses the same message. `LoginInput` is lenient: nick `Length(3, 20)`, password `Length(1, 64)`, no patterns |
+| `libs/dto/member/member.update.ts` | `MemberUpdate` (self and admin update) uses the same nick/password/phone rules as signup, all optional |
+| `components/member/member.service.ts` | `signup`, `updateMember` and `updateMemberByAdmin` normalize `memberPhone` before saving |
+| `app.module.ts` | `formatError` also reads `extensions.originalError.message` (Apollo 4 / Nest 10). For an array of ValidationPipe messages, it returns the first one |
+
+- The global `ValidationPipe` has no `transform: true`. Validation checks the normalized phone, but the resolver gets the raw value, so the service normalizes again. It was not enabled globally because that would change every input.
+- Checked with a script (ValidationPipe on the DTOs): `+82 10-1234-5678` is accepted; a bad nick, a password without a digit and `0212345678` each return the expected single message; an old 3-char nick with a 5-char password still passes `LoginInput`.
+- Existing members are not migrated. Phones saved in another format (e.g. with dashes) stay as they are, so the unique index cannot catch the same number written two ways.
+- **Bug fixed (same session):** `updateMember` and `updateMemberByAdmin` saved `memberPassword` without `hashPassword`, so a password change stored plain text and that member could no longer log in. Both now hash it with `AuthService.hashPassword` (bcrypt, the same as signup) before saving. The password is never returned: the schema has `select: false` and the `Member` GraphQL type has no `memberPassword` field. Passwords already saved in plain text by the old code are not migrated; those members must reset their password (an admin can set a new one through `updateMemberByAdmin`).
+
+Validation: ✅ tsc api + batch, ✅ `npm run build`, ✅ DTO validation script. The GraphQL error format was not checked against a running server.

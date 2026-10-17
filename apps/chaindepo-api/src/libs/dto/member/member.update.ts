@@ -1,7 +1,17 @@
 import { Field, InputType } from '@nestjs/graphql';
-import { IsNotEmpty, IsOptional, Length } from 'class-validator';
+import { IsNotEmpty, IsOptional, Length, Matches } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { MemberStatus, MemberType } from '../../enums/member.enum';
 import { ObjectId } from 'mongoose';
+import {
+	MEMBER_NICK_MESSAGE,
+	MEMBER_NICK_REGEX,
+	MEMBER_PASSWORD_MESSAGE,
+	MEMBER_PASSWORD_REGEX,
+	MEMBER_PHONE_MESSAGE,
+	MEMBER_PHONE_REGEX,
+	normalizeMemberPhone,
+} from '../../config';
 
 @InputType()
 export class MemberUpdate {
@@ -17,17 +27,22 @@ export class MemberUpdate {
 	@Field(() => MemberStatus, { nullable: true })
 	memberStatus?: MemberStatus;
 
+	// same rules as signup (MemberInput); MemberService normalizes the phone again before saving
 	@IsOptional()
+	@Transform(({ value }) => normalizeMemberPhone(value))
+	@Matches(MEMBER_PHONE_REGEX, { message: MEMBER_PHONE_MESSAGE })
 	@Field(() => String, { nullable: true })
 	memberPhone?: string;
 
 	@IsOptional()
-	@Length(3, 12)
+	@Length(3, 20, { message: MEMBER_NICK_MESSAGE })
+	@Matches(MEMBER_NICK_REGEX, { message: MEMBER_NICK_MESSAGE })
 	@Field(() => String, { nullable: true })
 	memberNick?: string;
 
 	@IsOptional()
-	@Length(5, 12)
+	@Length(8, 64, { message: MEMBER_PASSWORD_MESSAGE })
+	@Matches(MEMBER_PASSWORD_REGEX, { message: MEMBER_PASSWORD_MESSAGE })
 	@Field(() => String, { nullable: true })
 	memberPassword?: string;
 

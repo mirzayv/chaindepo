@@ -16,7 +16,7 @@ import { LikeService } from '../like/like.service';
 import { LikeInput } from '../../libs/dto/like/like.input';
 import { LikeGroup } from '../../libs/enums/like.enum';
 import { Follower, Following, MeFollowed } from '../../libs/dto/follow/follow';
-import { lookupAuthMemberLiked } from '../../libs/config';
+import { lookupAuthMemberLiked, normalizeMemberPhone } from '../../libs/config';
 
 @Injectable()
 export class MemberService {
@@ -30,6 +30,7 @@ export class MemberService {
 
 	public async signup(input: MemberInput): Promise<Member> {
 		if (input.memberType === MemberType.ADMIN) throw new BadRequestException(Message.ADMIN_SIGNUP_NOT_ALLOWED);
+		input.memberPhone = normalizeMemberPhone(input.memberPhone) as string;
 		input.memberPassword = await this.authService.hashPassword(input.memberPassword);
 		try {
 			const result = await this.memberModel.create(input);
@@ -62,6 +63,9 @@ export class MemberService {
 	}
 
 	public async updateMember(memberId: ObjectId, input: MemberUpdate): Promise<Member> {
+		if (input.memberPhone) input.memberPhone = normalizeMemberPhone(input.memberPhone) as string;
+		// same hashing as signup: a plain password must never reach the database
+		if (input.memberPassword) input.memberPassword = await this.authService.hashPassword(input.memberPassword);
 		const result: Member | null = await this.memberModel
 			.findOneAndUpdate(
 				{
@@ -171,6 +175,8 @@ export class MemberService {
 	}
 
 	public async updateMemberByAdmin(input: MemberUpdate): Promise<Member> {
+		if (input.memberPhone) input.memberPhone = normalizeMemberPhone(input.memberPhone) as string;
+		if (input.memberPassword) input.memberPassword = await this.authService.hashPassword(input.memberPassword);
 		const result: Member | null = await this.memberModel
 			.findOneAndUpdate({ _id: input._id }, input, { new: true })
 			.exec();
