@@ -414,3 +414,50 @@ Branch: `modification`. Nothing was committed or pushed by Claude. `.env` was no
 - Logged-in members work as before. The frontend does not reconnect on close; it reopens the socket with the token on login (`reconnectChatSocket`), so a guest who logs in joins the chat.
 
 Validation: ✅ `npm run build`.
+
+---
+
+# Completed Tasks: Session 2026-10-17 (AI assistant, Gemini)
+
+Branch: `modification`. Nothing was committed or pushed by Claude. `.env` was not read or changed. No packages were installed (uses the existing `@nestjs/axios` `HttpModule`).
+
+## Files
+
+All paths are under `apps/chaindepo-api/src/`.
+
+| File | Change |
+|---|---|
+| `libs/dto/assistant/assistant.input.ts` (new) | `AssistantInput { message (1–500), history? }`, `AssistantHistoryInput { role: 'user' \| 'model', text (≤ 1000) }` |
+| `libs/dto/assistant/assistant.ts` (new) | `AssistantAnswer { reply }` |
+| `components/assistant/assistant.{module,resolver,service}.ts` (new) | `askAssistant` mutation (AuthGuard), quota, tracking context, Gemini call |
+| `components/components.module.ts` | Registers `AssistantModule` |
+
+## Behaviour
+
+- `askAssistant(input: AssistantInput): AssistantAnswer`, members only (`AuthGuard`; guests get the existing auth error).
+- Only the last 6 history items are sent to Gemini.
+- **Limit:** 20 questions per member per day. Counted in an in-memory `Map` keyed by `memberId:YYYY-MM-DD` (server date; UTC in Docker). The map is cleared when the day changes and resets when the process restarts. Over the limit, the reply is "Daily assistant limit reached. Try again tomorrow."
+- **Gemini:** `POST …/v1beta/models/${GEMINI_MODEL}:generateContent` with the `x-goog-api-key` header, `systemInstruction`, `contents` (history + message) and `generationConfig { maxOutputTokens: 600, temperature: 0.3 }`. Timeout 20 s.
+  - For `gemini-2.5-flash*` models, the request also sends `thinkingConfig.thinkingBudget: 0`. Their thinking tokens count toward `maxOutputTokens` and can otherwise leave the reply empty.
+- **Fixed replies:**
+  - No `GEMINI_API_KEY` → "The assistant is not configured yet." This does not use up quota.
+  - HTTP 429 → "The assistant is busy right now, please try again in a minute."
+  - Any other error or an empty answer → logged on the server (status and messages only; never the axios error object, which holds the key header) → "Sorry, something went wrong."
+- **Tracking context:** looks for codes matching `CD` + 6 digits + 8 hex (the `generateTrackingCode` format; case-insensitive, up to 3 per message).
+  - For each code it uses `ShipmentService.getShipmentByTrackingCode`, `TrackingEventService.getTrackingEvents` and `verifyShipmentChain`.
+  - It adds a block with: title, type, origin → destination, status, each event (status, location, UTC time), and whether the chain is valid. Unknown code → "not found".
+  - Not included: member/carrier ids, phone, address, price, event notes, hashes.
+  - The block goes into the **user** turn and is labelled as data, so the system instruction stays fixed.
+
+## Environment
+
+`docker-compose.yml` was not changed. The `api` service already loads the whole server `.env` through `env_file: .env`, and locally `ConfigModule.forRoot()` reads `.env`. Add to `.env`:
+
+```
+GEMINI_API_KEY=<your Google AI Studio key>
+GEMINI_MODEL=gemini-2.5-flash
+```
+
+`GEMINI_MODEL` is optional (default `gemini-2.5-flash`). After editing the server `.env`, run `docker compose up -d api`; compose recreates the container because the env changed.
+
+Validation: ✅ tsc api + batch, ✅ `npm run build`. Not run against the real Gemini API.
