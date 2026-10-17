@@ -15,13 +15,17 @@ const SYSTEM_INSTRUCTION =
 // replies are returned as normal answers (not exceptions), so the chat UI can show them as is
 const Reply = {
 	LIMIT_REACHED: 'Daily assistant limit reached. Try again tomorrow.',
+	GUEST_LIMIT_REACHED: "You've reached the guest limit for today. Log in to ask more questions.",
+	GUESTS_BUSY: 'The assistant is busy today. Log in to keep asking.',
 	NOT_CONFIGURED: 'The assistant is not configured yet.',
 	BUSY: 'The assistant is busy right now, please try again in a minute.',
 	FAILED: 'Sorry, something went wrong.',
 	NO_ANSWER: "Sorry, I couldn't answer that. Please rephrase.",
 } as const;
 
-const DAILY_LIMIT = 20;
+const MEMBER_DAILY_LIMIT = 20;
+const GUEST_DAILY_LIMIT = 5; // per client IP
+const ALL_GUESTS_DAILY_LIMIT = 300; // all guests together
 const HISTORY_LIMIT = 6;
 const MAX_CODES_PER_MESSAGE = 3;
 const GEMINI_TIMEOUT_MS = 20000;
@@ -31,8 +35,10 @@ const TRACKING_CODE_REGEX = /\bCD\d{6}[0-9A-F]{8}\b/gi;
 @Injectable()
 export class AssistantService {
 	private readonly logger = new Logger('AssistantService');
-	// key: `${memberId}:${YYYY-MM-DD}` → questions asked that day (in memory, per process)
+	// key: `member:${memberId}:${YYYY-MM-DD}` or `guest:${ip}:${YYYY-MM-DD}` → questions asked that day
+	// (in memory, per process; cleared when the day changes)
 	private readonly usage = new Map<string, number>();
+	private guestTotal = 0;
 	private usageDay = '';
 
 	constructor(
@@ -41,11 +47,12 @@ export class AssistantService {
 		private readonly trackingEventService: TrackingEventService,
 	) {}
 
-	public async askAssistant(memberId: ObjectId, input: AssistantInput): Promise<AssistantAnswer> {
+	public async askAssistant(memberId: ObjectId | null, clientIp: string, input: AssistantInput): Promise<AssistantAnswer> {
 		const apiKey = process.env.GEMINI_API_KEY;
 		if (!apiKey) return { reply: Reply.NOT_CONFIGURED };
 
-		if (!this.consumeQuota(String(memberId))) return { reply: Reply.LIMIT_REACHED };
+		const limitReply = this.consumeQuota(memberId, clientIp);
+		if (limitReply) return { reply: limitReply };
 
 		const message = input.message.trim();
 		const history = (input.history ?? []).slice(-HISTORY_LIMIT);
@@ -106,18 +113,32 @@ export class AssistantService {
 		}
 	}
 
-	private consumeQuota(memberId: string): boolean {
+	/** Counts one question; returns the limit reply when it must not go through (nothing is counted then). */
+	private consumeQuota(memberId: ObjectId | null, clientIp: string): string | null {
 		const today = moment().format('YYYY-MM-DD');
 		if (today !== this.usageDay) {
 			// new day: drop yesterday's counters so the map does not grow forever
 			this.usage.clear();
+			this.guestTotal = 0;
 			this.usageDay = today;
 		}
-		const key = `${memberId}:${today}`;
+
+		if (memberId) {
+			const key = `member:${String(memberId)}:${today}`;
+			const used = this.usage.get(key) ?? 0;
+			if (used >= MEMBER_DAILY_LIMIT) return Reply.LIMIT_REACHED;
+			this.usage.set(key, used + 1);
+			return null;
+		}
+
+		const key = `guest:${clientIp}:${today}`;
 		const used = this.usage.get(key) ?? 0;
-		if (used >= DAILY_LIMIT) return false;
+		// the guest's own limit is checked first: its reply is the more specific one
+		if (used >= GUEST_DAILY_LIMIT) return Reply.GUEST_LIMIT_REACHED;
+		if (this.guestTotal >= ALL_GUESTS_DAILY_LIMIT) return Reply.GUESTS_BUSY;
 		this.usage.set(key, used + 1);
-		return true;
+		this.guestTotal++;
+		return null;
 	}
 
 	/** Public tracking data only (what the tracking page shows): no member ids, phones, addresses or notes. */

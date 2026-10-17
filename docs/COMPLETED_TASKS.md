@@ -471,3 +471,22 @@ Gemini returned 404: `gemini-2.5-flash` is no longer available to new users.
 - `.env`: `GEMINI_MODEL=gemini-3.8-flash`, or remove the line to use the default. An old `GEMINI_MODEL=gemini-2.5-flash` line would keep returning 404.
 
 Validation: ✅ `npm run build`. Not run against the real Gemini API.
+
+## Update: plain-text replies (2026-10-17)
+
+The system instruction now asks for plain text (no Markdown; steps as `1. ...`). As a safety net, `**` and `__` are removed from the reply before it is returned.
+
+## Update: open to guests (2026-10-17)
+
+- `askAssistant` uses `WithoutGuard` instead of `AuthGuard`. Guests get `memberId = null`; members are still identified by their token.
+- Client IP (in `assistant.resolver.ts`): `X-Real-IP`, else the first `X-Forwarded-For` value, else the socket address. A `::ffff:` prefix is removed so IPv4 and IPv4-mapped IPv6 count as the same client.
+- Daily limits (in memory, reset on a new day or on restart):
+  - Members: 20 per `memberId` → "Daily assistant limit reached. Try again tomorrow."
+  - Guests: 5 per IP → "You've reached the guest limit for today. Log in to ask more questions."
+  - All guests together: 300 → "The assistant is busy today. Log in to keep asking."
+  - The per-IP limit is checked first. A rejected question is not counted.
+- `deploy/nginx/default.conf.template` already set `X-Real-IP $remote_addr` and `X-Forwarded-For $proxy_add_x_forwarded_for` for the API location. No change.
+- Behind nginx, `X-Real-IP` is always overwritten, so guests cannot fake their IP. Without a proxy (local dev, or the API exposed directly), the headers can be spoofed.
+- The tracking lookup is unchanged (public data only).
+
+Validation: ✅ `npm run build`. Not run against the real Gemini API.
