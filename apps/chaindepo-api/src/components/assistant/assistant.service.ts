@@ -28,7 +28,26 @@ const GUEST_DAILY_LIMIT = 5; // per client IP
 const ALL_GUESTS_DAILY_LIMIT = 300; // all guests together
 const HISTORY_LIMIT = 6;
 const MAX_CODES_PER_MESSAGE = 3;
-const GEMINI_TIMEOUT_MS = 20000;
+// per model attempt; with fallbacks the worst case stays under ~40s
+const GEMINI_TIMEOUT_MS = 13000;
+const DEFAULT_MODEL = 'gemini-3.5-flash';
+const DEFAULT_FALLBACK_MODELS = 'gemini-3.5-flash-lite,gemini-2.5-flash';
+
+/**
+ * thinking tokens count toward maxOutputTokens and can leave an empty reply:
+ * 2.5 Flash can turn thinking off (Pro cannot); Gemini 3 uses thinkingLevel instead of thinkingBudget,
+ * so keep it low and leave room for the answer
+ */
+const generationConfigFor = (model: string): T => {
+	const config: T = { maxOutputTokens: 600, temperature: 0.3 };
+	if (/^gemini-2\.5-flash/.test(model)) {
+		config.thinkingConfig = { thinkingBudget: 0 };
+	} else if (model.startsWith('gemini-3')) {
+		config.thinkingConfig = { thinkingLevel: 'low' };
+		config.maxOutputTokens = 1024;
+	}
+	return config;
+};
 // same format as generateTrackingCode in libs/config.ts: 'CD' + YYMMDD + 8 uppercase hex chars
 const TRACKING_CODE_REGEX = /\bCD\d{6}[0-9A-F]{8}\b/gi;
 
@@ -59,58 +78,57 @@ export class AssistantService {
 		const context = await this.buildTrackingContext(message);
 		const userText = context ? `${context}\n\n[User message]\n${message}` : message;
 
-		const model = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
-		const generationConfig: T = { maxOutputTokens: 600, temperature: 0.3 };
-		// thinking tokens count toward maxOutputTokens and can leave an empty reply:
-		// 2.5 Flash can turn thinking off (Pro cannot); Gemini 3 uses thinkingLevel instead of thinkingBudget,
-		// so keep it low and leave room for the answer
-		if (/^gemini-2\.5-flash/.test(model)) {
-			generationConfig.thinkingConfig = { thinkingBudget: 0 };
-		} else if (model.startsWith('gemini-3')) {
-			generationConfig.thinkingConfig = { thinkingLevel: 'low' };
-			generationConfig.maxOutputTokens = 1024;
-		}
+		const contents = [
+			...history.map((item) => ({ role: item.role, parts: [{ text: item.text }] })),
+			{ role: 'user', parts: [{ text: userText }] },
+		];
 
-		const body = {
-			systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
-			contents: [
-				...history.map((item) => ({ role: item.role, parts: [{ text: item.text }] })),
-				{ role: 'user', parts: [{ text: userText }] },
-			],
-			generationConfig,
-		};
+		// Gemini models are often overloaded (503) or slow; try the main model first, then lighter fallbacks.
+		// GEMINI_FALLBACK_MODELS (comma separated) overrides the default fallback list.
+		const fallbacks = (process.env.GEMINI_FALLBACK_MODELS ?? DEFAULT_FALLBACK_MODELS)
+			.split(',')
+			.map((name) => name.trim())
+			.filter(Boolean);
+		const models = [...new Set([process.env.GEMINI_MODEL || DEFAULT_MODEL, ...fallbacks])];
 
-		try {
-			const response = await firstValueFrom(
-				this.httpService.post(
-					`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
-					body,
-					{ headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' }, timeout: GEMINI_TIMEOUT_MS },
-				),
-			);
-			const candidate = response.data?.candidates?.[0];
-			const reply = (candidate?.content?.parts ?? [])
-				.map((part: T) => part?.text ?? '')
-				.join('')
-				// safety net: the chat UI shows plain text, so drop leftover bold markers
-				.replace(/\*\*|__/g, '')
-				.trim();
-			if (!reply) {
-				// e.g. MAX_TOKENS (spent on thinking) or SAFETY; promptFeedback.blockReason when the prompt itself was blocked
-				const reason = candidate?.finishReason ?? response.data?.promptFeedback?.blockReason ?? 'unknown';
-				this.logger.warn(`Gemini returned no text (finishReason: ${reason})`);
-				return { reply: Reply.NO_ANSWER };
+		let overloaded = false;
+		for (const model of models) {
+			const body = { systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] }, contents, generationConfig: generationConfigFor(model) };
+			try {
+				const response = await firstValueFrom(
+					this.httpService.post(
+						`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+						body,
+						{ headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' }, timeout: GEMINI_TIMEOUT_MS },
+					),
+				);
+				const candidate = response.data?.candidates?.[0];
+				const reply = (candidate?.content?.parts ?? [])
+					.map((part: T) => part?.text ?? '')
+					.join('')
+					// safety net: the chat UI shows plain text, so drop leftover bold markers
+					.replace(/\*\*|__/g, '')
+					.trim();
+				if (!reply) {
+					// e.g. MAX_TOKENS (spent on thinking) or SAFETY; promptFeedback.blockReason when the prompt itself was blocked
+					const reason = candidate?.finishReason ?? response.data?.promptFeedback?.blockReason ?? 'unknown';
+					this.logger.warn(`Gemini ${model} returned no text (finishReason: ${reason})`);
+					return { reply: Reply.NO_ANSWER };
+				}
+				return { reply };
+			} catch (err) {
+				const error = err as T;
+				const status: number | undefined = error?.response?.status;
+				// log only status and messages: the axios error object also holds the request headers (API key)
+				const apiMessage = error?.response?.data?.error?.message;
+				this.logger.error(`Gemini ${model} failed: status=${status ?? 'none'} ${error?.message ?? ''} ${apiMessage ?? ''}`);
+				// overload, rate limit or timeout: try the next model; anything else (bad request, auth) will not get better
+				const retryable = status === undefined || status === 429 || status >= 500;
+				if (!retryable) return { reply: Reply.FAILED };
+				overloaded = true;
 			}
-			return { reply };
-		} catch (err) {
-			const error = err as T;
-			const status: number | undefined = error?.response?.status;
-			if (status === 429) return { reply: Reply.BUSY };
-			// log only status and messages: the axios error object also holds the request headers (API key)
-			const apiMessage = error?.response?.data?.error?.message;
-			this.logger.error(`Gemini request failed: status=${status ?? 'none'} ${error?.message ?? ''} ${apiMessage ?? ''}`);
-			return { reply: Reply.FAILED };
 		}
+		return { reply: overloaded ? Reply.BUSY : Reply.FAILED };
 	}
 
 	/** Counts one question; returns the limit reply when it must not go through (nothing is counted then). */

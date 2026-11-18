@@ -511,3 +511,16 @@ Branch: `modification`. Nothing was committed or pushed by Claude. `.env` was no
 - **Bug fixed (same session):** `updateMember` and `updateMemberByAdmin` saved `memberPassword` without `hashPassword`, so a password change stored plain text and that member could no longer log in. Both now hash it with `AuthService.hashPassword` (bcrypt, the same as signup) before saving. The password is never returned: the schema has `select: false` and the `Member` GraphQL type has no `memberPassword` field. Passwords already saved in plain text by the old code are not migrated; those members must reset their password (an admin can set a new one through `updateMemberByAdmin`).
 
 Validation: ✅ tsc api + batch, ✅ `npm run build`, ✅ DTO validation script. The GraphQL error format was not checked against a running server.
+
+## Assistant: fall back to other Gemini models when the main one is busy (2026-11-19)
+
+Production logs showed `gemini-3.5-flash` answering `503 This model is currently experiencing high demand` and `timeout of 20000ms exceeded`, so guests saw "Sorry, something went wrong."
+
+| File | Change |
+|---|---|
+| `components/assistant/assistant.service.ts` | Tries `GEMINI_MODEL` (default `gemini-3.5-flash`), then the fallbacks `GEMINI_FALLBACK_MODELS` (default `gemini-3.5-flash-lite,gemini-2.5-flash`). A 429, a 5xx or a timeout moves on to the next model; other errors stop at once. If every model was overloaded the reply is `BUSY` ("try again in a minute") instead of `FAILED`. Per-attempt timeout 13 s. `generationConfigFor(model)` keeps the thinking settings per model family |
+
+- The fallback model names were checked against the live `models` list for the project's API key.
+- The quota is still counted once per question, not per model attempt.
+
+Validation: ✅ tsc api, ✅ `nest build chaindepo-api`. Not run against Gemini locally (no `.env` access); check on the server after deploy.
