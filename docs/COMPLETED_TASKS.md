@@ -524,3 +524,16 @@ Production logs showed `gemini-3.5-flash` answering `503 This model is currently
 - The quota is still counted once per question, not per model attempt.
 
 Validation: ✅ tsc api, ✅ `nest build chaindepo-api`. Not run against Gemini locally (no `.env` access); check on the server after deploy.
+
+## Production: 502 on api.chaindepo.app after the api container was recreated (2026-11-25)
+
+A user reported "Load failed" on login and signup. `api.chaindepo.app` returned **502**; the nginx log showed `connect() failed (111: Connection refused)` to `172.18.0.2:3007`, while the recreated `api` container was at `172.18.0.5`. nginx resolves `proxy_pass http://api:3007` once at startup and keeps that IP.
+
+| File | Change |
+|---|---|
+| `deploy/nginx/default.conf.template` | `resolver 127.0.0.11 valid=10s ipv6=off;` (Docker's embedded DNS) and `proxy_pass` through variables (`$api_upstream`, `$next_upstream`), so nginx looks the container names up again at request time |
+
+- Immediate fix: `nginx -t && nginx -s reload` inside the nginx container.
+- Rollout: template uploaded to the VM (backup `default.conf.template.bak-20261125`), rendered with `envsubst`, `nginx -t`, reload.
+- Verified: site 200, `/graphql` 200, WebSocket upgrade 101. The next `next` container rebuild was served without touching nginx.
+- Frontend follow-up (chaindepo-next 6c9d32f): browser network errors now show a readable message, and an unknown nickname offers "Create an account".
