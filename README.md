@@ -4,6 +4,9 @@ Backend for **[ChainDepo](https://chaindepo.app)**, a shipment-tracking platform
 
 Frontend: [mirzayv/chaindepo-next](https://github.com/mirzayv/chaindepo-next) · Live: https://chaindepo.app
 
+![ChainDepo demo: enter a tracking code, see the route, every hash-chained event and the on-chain verification](https://github.com/mirzayv/chaindepo-next/raw/modification/docs/demo.gif)
+
+
 ## Features
 - **Shipments & tracking events** — shippers create shipments, carriers add status events (picked up, in transit, delivered …).
 - **Hash chain** — each event stores the SHA-256 hash of its data plus the previous event's hash; changing any event breaks the chain.
