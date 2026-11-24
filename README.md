@@ -14,6 +14,49 @@ Frontend: [mirzayv/chaindepo-next](https://github.com/mirzayv/chaindepo-next) ·
 - **Community** — board articles, comments, likes, follows and view counts; image uploads (`graphql-upload`).
 - **Batch jobs** — a separate NestJS app with nightly `@nestjs/schedule` cron jobs that recompute top shipments and top carriers.
 
+## Architecture
+```mermaid
+flowchart LR
+    U["Browser<br/>chaindepo.app"] -->|HTTPS| N["Nginx<br/>Let's Encrypt"]
+    N -->|chaindepo.app| W["Next.js frontend<br/>Apollo Client"]
+    N -->|"api.chaindepo.app<br/>GraphQL + WebSocket"| A["NestJS API<br/>chaindepo-api"]
+    N -->|/uploads| V[("uploads volume")]
+    A --> M[("MongoDB Atlas<br/>Mongoose")]
+    A -->|"ethers.js<br/>anchor(eventHash)"| E["Ethereum Sepolia<br/>anchor contract"]
+    A -->|"assistant<br/>retries + fallback"| G["Google Gemini API"]
+    B["NestJS batch<br/>nightly cron"] --> M
+    subgraph VM["Google Cloud VM · Docker Compose"]
+        N
+        W
+        A
+        B
+        V
+    end
+```
+
+### How a tracking event becomes verifiable
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as Carrier
+    participant API as NestJS API
+    participant DB as MongoDB
+    participant ETH as Sepolia contract
+    participant P as Anyone (public page)
+    C->>API: createTrackingEvent(status, location)
+    API->>DB: transaction: read shipment.lastEventHash as prevHash
+    API->>API: eventHash = SHA-256(event data + prevHash)
+    API->>DB: save event, set shipment.lastEventHash
+    API-->>C: event saved
+    API->>ETH: anchor(shipmentKey, eventHash) in the background
+    ETH-->>API: tx hash, stored as eventTxHash
+    P->>API: verify shipment chain
+    API->>API: recompute every hash and prevHash link
+    API->>ETH: isAnchored(eventHash) for each event
+    API-->>P: chain intact? / anchored events count
+```
+Changing any stored event changes its hash, which breaks the link to the next event and no longer matches the hash anchored on Ethereum.
+
 ## Tech stack
 | Area | Tools |
 |---|---|
